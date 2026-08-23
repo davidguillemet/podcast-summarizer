@@ -1,8 +1,13 @@
 import { Router } from 'express';
 import { resolveShowWithEpisodes } from '../services/search.js';
-import { getShow, listEpisodes, listLibrary } from '../db.js';
+import { getShow, listEpisodes, listLibrary, listShowsWithTranscripts } from '../db.js';
 
 const router = Router();
+
+/** Shows with at least one transcribed episode — direct entry point into a show's episode list. */
+router.get('/shows', (_req, res) => {
+    res.json({ shows: listShowsWithTranscripts() });
+});
 
 /**
  * Persist a show picked from search results and return its episodes.

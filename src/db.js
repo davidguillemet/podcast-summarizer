@@ -121,6 +121,24 @@ export const getShow = (id) => selectShow.get(id);
 const selectShowByFeed = db.prepare('SELECT * FROM shows WHERE feed_url = ?');
 export const getShowByFeed = (feedUrl) => selectShowByFeed.get(feedUrl);
 
+/**
+ * Shows with at least one transcribed episode — the entry point for "browse what I've already
+ * transcribed", as opposed to every show ever opened from search (most have no transcripts).
+ */
+const selectShowsWithTranscripts = db.prepare(`
+    SELECT sh.id AS show_id, sh.title AS show_title, sh.author, sh.artwork_url,
+           COUNT(DISTINCT t.episode_id) AS transcript_count,
+           COUNT(DISTINCT s.episode_id) AS summarized_count,
+           MAX(COALESCE(s.created_at, t.created_at)) AS last_activity
+      FROM transcripts t
+      JOIN episodes e ON e.id = t.episode_id
+      JOIN shows sh   ON sh.id = e.show_id
+ LEFT JOIN summaries s ON s.episode_id = t.episode_id
+     GROUP BY sh.id
+     ORDER BY last_activity DESC
+`);
+export const listShowsWithTranscripts = () => selectShowsWithTranscripts.all();
+
 /* --------------------------------------------------------------- episodes */
 
 const insertEpisode = db.prepare(`

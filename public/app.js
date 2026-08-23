@@ -224,7 +224,11 @@ async function viewShow(showId) {
                            <button class="small" data-action="view" data-id="${e.id}">Read</button>`
                         : e.active_job_id
                           ? `<button class="small" data-action="job" data-job="${e.active_job_id}">In progress…</button>`
-                          : `<button class="small primary" data-action="run" data-id="${e.id}">Summarize</button>`
+                          : e.transcript_source
+                            ? `<span class="badge warn">transcribed</span>
+                               <a class="small" href="#/episode/${e.id}/transcript">Transcript</a>
+                               <button class="small primary" data-action="run" data-id="${e.id}">Summarize</button>`
+                            : `<button class="small primary" data-action="run" data-id="${e.id}">Summarize</button>`
                 }
             </div>
         </div>`
@@ -614,6 +618,42 @@ function toMarkdown(s, episode, show) {
     return lines.join('\n');
 }
 
+/** Shows with at least one transcribed episode — the direct route into a show's episode list. */
+async function viewShows() {
+    app.innerHTML = '<div class="loading">Loading podcasts…</div>';
+    const { shows } = await api('/shows');
+
+    if (shows.length === 0) {
+        app.innerHTML = `<h1>Podcasts</h1>
+            <div class="notice">Nothing transcribed yet. <a href="#/">Find a podcast</a> to get started.</div>`;
+        return;
+    }
+
+    app.innerHTML = `
+        <h1>Podcasts</h1>
+        <p class="muted small">${shows.length} podcast${shows.length === 1 ? '' : 's'} with at least one transcribed episode.</p>
+        <div class="cards">${shows
+            .map(
+                (sh) => `
+        <button class="card" data-id="${sh.show_id}">
+            <img class="art" src="${esc(sh.artwork_url || '')}" alt="" onerror="this.style.visibility='hidden'" />
+            <div class="card-body">
+                <div class="card-title">${esc(sh.show_title)}</div>
+                <div class="card-sub">${esc(sh.author || '')}</div>
+                <div class="badges">
+                    <span class="badge neutral">${sh.transcript_count} transcribed</span>
+                    <span class="badge neutral">${sh.summarized_count} summarized</span>
+                </div>
+            </div>
+        </button>`
+            )
+            .join('')}</div>`;
+
+    app.querySelectorAll('.card').forEach((el) =>
+        el.addEventListener('click', () => (location.hash = `#/show/${el.dataset.id}`))
+    );
+}
+
 async function viewLibrary() {
     app.innerHTML = '<div class="loading">Loading library…</div>';
     const { items } = await api('/library');
@@ -728,6 +768,7 @@ function router() {
     if (section === 'episode' && param && sub === 'summary' && subParam) return void viewSummary(param, subParam);
     if (section === 'episode' && param) return void viewSummary(param);
     if (section === 'library') return void viewLibrary();
+    if (section === 'shows') return void viewShows();
     return void viewSearch();
 }
 
