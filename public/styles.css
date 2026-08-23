@@ -133,6 +133,21 @@ button.primary:hover:not(:disabled) { filter: brightness(1.1); }
 button.danger:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
 button.small { padding: 5px 10px; font-size: 13px; }
 
+button.toggle-btn { font-size: 13px; padding: 6px 12px; }
+button.toggle-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+button.fav-btn {
+    background: none;
+    border: none;
+    padding: 4px;
+    font-size: 22px;
+    line-height: 1;
+    color: var(--border);
+    flex-shrink: 0;
+}
+button.fav-btn:hover:not(:disabled) { color: var(--warn); border-color: transparent; }
+button.fav-btn.active { color: var(--warn); }
+
 .row { display: flex; gap: 10px; align-items: center; }
 .spread { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 

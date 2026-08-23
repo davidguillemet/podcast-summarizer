@@ -43,10 +43,25 @@ const STAGE_LABEL = {
 };
 
 /** Keep the search term across navigation so Back to results still shows them. */
-const session = { term: '', results: null, status: null, backend: null };
+const session = {
+    term: '',
+    results: null,
+    status: null,
+    backend: null,
+    favoriteFeedUrls: new Set(),
+    podcastsFilter: { favorites: true, transcribed: true }
+};
 let activeStream = null;
 
 const BACKEND_LABEL = { claude: 'Claude', local: 'Mistral (local)' };
+
+/** Feed URLs vary by trailing slash / case; normalize before comparing search results to DB rows. */
+const normalizeFeedUrl = (url) => String(url || '').trim().toLowerCase().replace(/\/+$/, '');
+
+/** Upserts show metadata and sets its favorite flag — works whether the show is in the DB yet or not. */
+function postFavorite(feedUrl, meta, favorite) {
+    return api('/shows/favorite', { method: 'POST', body: JSON.stringify({ feedUrl, ...meta, favorite }) });
+}
 
 /** Which backend new jobs should use — defaults to the server's SUMMARIZER setting. */
 const currentBackend = () => session.backend || session.status?.summarizer || 'claude';
@@ -140,9 +155,10 @@ function renderResults(container, data) {
     container.innerHTML =
         notices.join('') +
         `<div class="cards">${data.results
-            .map(
-                (r, i) => `
-        <button class="card" data-index="${i}">
+            .map((r, i) => {
+                const isFav = session.favoriteFeedUrls.has(normalizeFeedUrl(r.feedUrl));
+                return `
+        <div class="card" data-index="${i}">
             <img class="art" src="${esc(r.artworkUrl || '')}" alt="" onerror="this.style.visibility='hidden'" />
             <div class="card-body">
                 <div class="card-title">${esc(r.title)}</div>
@@ -155,23 +171,57 @@ function renderResults(container, data) {
                     ${(r.genres ?? []).slice(0, 2).map((g) => `<span class="badge neutral">${esc(g)}</span>`).join('')}
                 </div>
             </div>
-        </button>`
-            )
+            <button class="fav-btn ${isFav ? 'active' : ''}" style="align-self:center" data-action="favorite" data-index="${i}"
+                    title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">${isFav ? '★' : '☆'}</button>
+        </div>`;
+            })
             .join('')}</div>`;
 
     container.querySelectorAll('.card').forEach((el) => {
         el.addEventListener('click', async () => {
             const show = data.results[Number(el.dataset.index)];
-            el.disabled = true;
+            el.style.opacity = '0.6';
             el.querySelector('.card-title').textContent = `${show.title} — loading episodes…`;
             try {
                 const res = await api('/shows', { method: 'POST', body: JSON.stringify(show) });
                 location.hash = `#/show/${res.show.id}`;
             } catch (err) {
                 container.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
-                el.disabled = false;
+                el.style.opacity = '';
                 el.querySelector('.card-title').textContent = show.title;
             }
+        });
+    });
+
+    container.querySelectorAll('[data-action="favorite"]').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const show = data.results[Number(btn.dataset.index)];
+            const key = normalizeFeedUrl(show.feedUrl);
+            const nowFavorite = !session.favoriteFeedUrls.has(key);
+            btn.disabled = true;
+            try {
+                await postFavorite(
+                    show.feedUrl,
+                    {
+                        title: show.title,
+                        author: show.author,
+                        description: show.description,
+                        artworkUrl: show.artworkUrl,
+                        source: show.source,
+                        sourceId: show.sourceId
+                    },
+                    nowFavorite
+                );
+                if (nowFavorite) session.favoriteFeedUrls.add(key);
+                else session.favoriteFeedUrls.delete(key);
+                btn.textContent = nowFavorite ? '★' : '☆';
+                btn.classList.toggle('active', nowFavorite);
+                btn.title = nowFavorite ? 'Remove from favorites' : 'Add to favorites';
+            } catch (err) {
+                container.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+            }
+            btn.disabled = false;
         });
     });
 }
@@ -191,11 +241,13 @@ async function viewShow(showId) {
         <a class="small" href="#/">← Back to search</a>
         <div class="show-header" style="margin-top:14px">
             <img class="art lg" src="${esc(show.artwork_url || '')}" alt="" onerror="this.style.visibility='hidden'" />
-            <div>
+            <div style="flex:1">
                 <h1>${esc(show.title)}</h1>
                 <div class="muted small">${esc(show.author || '')} · ${episodes.length} episodes</div>
                 ${show.description ? `<div class="card-desc" style="margin-top:8px">${esc(show.description)}</div>` : ''}
             </div>
+            <button class="fav-btn ${show.favorite ? 'active' : ''}" id="fav"
+                    title="${show.favorite ? 'Remove from favorites' : 'Add to favorites'}">${show.favorite ? '★' : '☆'}</button>
         </div>
         <div class="spread" style="align-items:center">
             <h2>Episodes</h2>
@@ -204,6 +256,28 @@ async function viewShow(showId) {
         <div id="episodes"></div>
     `;
     wireBackendPicker();
+
+    document.getElementById('fav').addEventListener('click', async (e) => {
+        const nowFavorite = !show.favorite;
+        e.target.disabled = true;
+        try {
+            await postFavorite(
+                show.feed_url,
+                { title: show.title, author: show.author, description: show.description, artworkUrl: show.artwork_url, source: show.source, sourceId: show.source_id },
+                nowFavorite
+            );
+            show.favorite = nowFavorite ? 1 : 0;
+            const key = normalizeFeedUrl(show.feed_url);
+            if (nowFavorite) session.favoriteFeedUrls.add(key);
+            else session.favoriteFeedUrls.delete(key);
+            e.target.classList.toggle('active', nowFavorite);
+            e.target.textContent = nowFavorite ? '★' : '☆';
+            e.target.title = nowFavorite ? 'Remove from favorites' : 'Add to favorites';
+        } catch (err) {
+            app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+        }
+        e.target.disabled = false;
+    });
 
     const list = document.getElementById('episodes');
     list.innerHTML = episodes
@@ -619,39 +693,96 @@ function toMarkdown(s, episode, show) {
 }
 
 /** Shows with at least one transcribed episode — the direct route into a show's episode list. */
+/** Favorited shows plus shows with at least one transcribed episode, with a favorites/transcribed filter. */
 async function viewShows() {
     app.innerHTML = '<div class="loading">Loading podcasts…</div>';
     const { shows } = await api('/shows');
 
     if (shows.length === 0) {
         app.innerHTML = `<h1>Podcasts</h1>
-            <div class="notice">Nothing transcribed yet. <a href="#/">Find a podcast</a> to get started.</div>`;
+            <div class="notice">Nothing favorited or transcribed yet. <a href="#/">Find a podcast</a> to get started.</div>`;
         return;
     }
 
-    app.innerHTML = `
-        <h1>Podcasts</h1>
-        <p class="muted small">${shows.length} podcast${shows.length === 1 ? '' : 's'} with at least one transcribed episode.</p>
-        <div class="cards">${shows
-            .map(
-                (sh) => `
-        <button class="card" data-id="${sh.show_id}">
-            <img class="art" src="${esc(sh.artwork_url || '')}" alt="" onerror="this.style.visibility='hidden'" />
-            <div class="card-body">
-                <div class="card-title">${esc(sh.show_title)}</div>
-                <div class="card-sub">${esc(sh.author || '')}</div>
-                <div class="badges">
-                    <span class="badge neutral">${sh.transcript_count} transcribed</span>
-                    <span class="badge neutral">${sh.summarized_count} summarized</span>
+    const filter = session.podcastsFilter;
+
+    const render = () => {
+        const filtered = shows.filter(
+            (sh) => (filter.favorites && sh.favorite) || (filter.transcribed && sh.transcript_count > 0)
+        );
+
+        app.innerHTML = `
+            <div class="spread" style="align-items:center">
+                <h1>Podcasts</h1>
+                <div class="row">
+                    <button class="toggle-btn ${filter.favorites ? 'active' : ''}" data-filter="favorites">★ Favorites</button>
+                    <button class="toggle-btn ${filter.transcribed ? 'active' : ''}" data-filter="transcribed">Transcribed</button>
                 </div>
             </div>
-        </button>`
-            )
-            .join('')}</div>`;
+            <p class="muted small">${filtered.length} podcast${filtered.length === 1 ? '' : 's'}.</p>
+            <div class="cards">${filtered
+                .map(
+                    (sh, i) => `
+            <div class="card" data-id="${sh.show_id}">
+                <img class="art" src="${esc(sh.artwork_url || '')}" alt="" onerror="this.style.visibility='hidden'" />
+                <div class="card-body">
+                    <div class="card-title">${esc(sh.show_title)}</div>
+                    <div class="card-sub">${esc(sh.author || '')}</div>
+                    <div class="badges">
+                        <span class="badge neutral">${sh.transcript_count} transcribed</span>
+                        <span class="badge neutral">${sh.summarized_count} summarized</span>
+                    </div>
+                </div>
+                <button class="fav-btn ${sh.favorite ? 'active' : ''}" style="align-self:center" data-action="favorite" data-index="${i}"
+                        title="${sh.favorite ? 'Remove from favorites' : 'Add to favorites'}">${sh.favorite ? '★' : '☆'}</button>
+            </div>`
+                )
+                .join('')}</div>
+            ${filtered.length === 0 ? '<div class="notice">No podcasts match the selected filters.</div>' : ''}
+        `;
 
-    app.querySelectorAll('.card').forEach((el) =>
-        el.addEventListener('click', () => (location.hash = `#/show/${el.dataset.id}`))
-    );
+        document.querySelectorAll('[data-filter]').forEach((btn) =>
+            btn.addEventListener('click', () => {
+                const key = btn.dataset.filter;
+                const other = key === 'favorites' ? 'transcribed' : 'favorites';
+                if (filter[key] && !filter[other]) return; // at least one filter must stay active
+                filter[key] = !filter[key];
+                render();
+            })
+        );
+
+        document.querySelectorAll('.card').forEach((el) => {
+            el.addEventListener('click', (e) => {
+                if (e.target.closest('[data-action="favorite"]')) return;
+                location.hash = `#/show/${el.dataset.id}`;
+            });
+        });
+
+        document.querySelectorAll('[data-action="favorite"]').forEach((btn) => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const sh = filtered[Number(btn.dataset.index)];
+                const nowFavorite = !sh.favorite;
+                btn.disabled = true;
+                try {
+                    await postFavorite(
+                        sh.feed_url,
+                        { title: sh.show_title, author: sh.author, artworkUrl: sh.artwork_url, source: sh.source, sourceId: sh.source_id },
+                        nowFavorite
+                    );
+                    sh.favorite = nowFavorite ? 1 : 0;
+                    if (nowFavorite) session.favoriteFeedUrls.add(normalizeFeedUrl(sh.feed_url));
+                    else session.favoriteFeedUrls.delete(normalizeFeedUrl(sh.feed_url));
+                    render();
+                } catch (err) {
+                    app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+                    btn.disabled = false;
+                }
+            });
+        });
+    };
+
+    render();
 }
 
 async function viewLibrary() {
@@ -785,6 +916,14 @@ async function boot() {
             `search: iTunes${s.podcastIndexEnabled ? ' + Podcast Index' : ''}`;
     } catch {
         statusLine.textContent = 'server unreachable';
+    }
+    try {
+        const { shows } = await api('/shows');
+        session.favoriteFeedUrls = new Set(
+            shows.filter((sh) => sh.favorite).map((sh) => normalizeFeedUrl(sh.feed_url))
+        );
+    } catch {
+        /* favorites star just won't show as active yet; not worth blocking boot over */
     }
     router();
 }

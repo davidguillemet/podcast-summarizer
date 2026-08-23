@@ -1,12 +1,26 @@
 import { Router } from 'express';
 import { resolveShowWithEpisodes } from '../services/search.js';
-import { getShow, listEpisodes, listLibrary, listShowsWithTranscripts } from '../db.js';
+import { getShow, listEpisodes, listLibrary, listBrowsableShows, upsertShow, setFavorite } from '../db.js';
 
 const router = Router();
 
-/** Shows with at least one transcribed episode — direct entry point into a show's episode list. */
+/** Favorited shows, plus shows with at least one transcribed episode — the Podcasts browse page. */
 router.get('/shows', (_req, res) => {
-    res.json({ shows: listShowsWithTranscripts() });
+    res.json({ shows: listBrowsableShows() });
+});
+
+/**
+ * Toggle a show's favorite flag. Always upserts first, since this is also how a show picked
+ * straight from search gets its first DB row — favoriting shouldn't require opening it.
+ */
+router.post('/shows/favorite', (req, res) => {
+    const { feedUrl, title } = req.body ?? {};
+    if (!feedUrl || !title) {
+        return res.status(400).json({ error: 'feedUrl and title are required' });
+    }
+    const show = upsertShow(req.body);
+    setFavorite(show.id, req.body.favorite !== false);
+    res.json({ show: getShow(show.id) });
 });
 
 /**

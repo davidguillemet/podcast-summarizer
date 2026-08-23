@@ -85,6 +85,7 @@ function ensureColumn(table, column, definition) {
 ensureColumn('summaries', 'backend', 'TEXT');
 ensureColumn('jobs', 'backend', 'TEXT');
 ensureColumn('jobs', 'note', 'TEXT'); // human-readable sub-status, e.g. "Reading segment 2 of 4"
+ensureColumn('shows', 'favorite', 'INTEGER NOT NULL DEFAULT 0');
 
 const now = () => new Date().toISOString();
 
@@ -121,23 +122,30 @@ export const getShow = (id) => selectShow.get(id);
 const selectShowByFeed = db.prepare('SELECT * FROM shows WHERE feed_url = ?');
 export const getShowByFeed = (feedUrl) => selectShowByFeed.get(feedUrl);
 
+const setFavoriteStmt = db.prepare('UPDATE shows SET favorite = ? WHERE id = ?');
+export const setFavorite = (id, favorite) => setFavoriteStmt.run(favorite ? 1 : 0, id).changes > 0;
+
 /**
- * Shows with at least one transcribed episode — the entry point for "browse what I've already
- * transcribed", as opposed to every show ever opened from search (most have no transcripts).
+ * Shows worth showing on the "Podcasts" browse page: favorited, or with at least one
+ * transcribed episode — as opposed to every show ever opened from search, most of which
+ * have neither. LEFT JOINs throughout because a favorited-but-never-opened show may have
+ * zero episodes cached yet.
  */
-const selectShowsWithTranscripts = db.prepare(`
-    SELECT sh.id AS show_id, sh.title AS show_title, sh.author, sh.artwork_url,
+const selectBrowsableShows = db.prepare(`
+    SELECT sh.id AS show_id, sh.title AS show_title, sh.author, sh.artwork_url, sh.feed_url,
+           sh.source, sh.source_id, sh.favorite,
            COUNT(DISTINCT t.episode_id) AS transcript_count,
            COUNT(DISTINCT s.episode_id) AS summarized_count,
-           MAX(COALESCE(s.created_at, t.created_at)) AS last_activity
-      FROM transcripts t
-      JOIN episodes e ON e.id = t.episode_id
-      JOIN shows sh   ON sh.id = e.show_id
- LEFT JOIN summaries s ON s.episode_id = t.episode_id
+           MAX(COALESCE(s.created_at, t.created_at, sh.created_at)) AS last_activity
+      FROM shows sh
+ LEFT JOIN episodes e    ON e.show_id = sh.id
+ LEFT JOIN transcripts t ON t.episode_id = e.id
+ LEFT JOIN summaries s   ON s.episode_id = e.id
+     WHERE sh.favorite = 1 OR t.id IS NOT NULL
      GROUP BY sh.id
-     ORDER BY last_activity DESC
+     ORDER BY sh.favorite DESC, last_activity DESC
 `);
-export const listShowsWithTranscripts = () => selectShowsWithTranscripts.all();
+export const listBrowsableShows = () => selectBrowsableShows.all();
 
 /* --------------------------------------------------------------- episodes */
 
