@@ -1,12 +1,13 @@
 # Podcast Summarizer
 
 Search any podcast, transcribe an episode **on-device**, and get a structured summary.
-Runs locally: a small Express server, SQLite, whisper.cpp on the GPU, and either the Claude
-API or a local Mistral model for the summary. Audio never leaves the machine.
+Runs locally: a small Express server, SQLite, whisper.cpp on the GPU, and a choice of three
+summarizers — the Claude API, the hosted Mistral API, or a local Mistral model. Audio never
+leaves the machine either way.
 
 ```
 search (iTunes + Podcast Index) → episode list → download → ffmpeg → whisper.cpp (Metal)
-    → Claude API  ─or─  Mistral Small 3.2 via llama.cpp (Metal) → SQLite
+    → Claude API ─or─ Mistral API ─or─ Mistral Small 3.2 via llama.cpp (Metal) → SQLite
 ```
 
 ## Quick start
@@ -18,8 +19,9 @@ npm start                 # http://localhost:4300
 ```
 
 With `SUMMARIZER=local` (the fully offline path) nothing else is needed once the model is in
-place. With `SUMMARIZER=claude` you need an `ANTHROPIC_API_KEY`; the server refuses to boot
-without one so you find out immediately rather than at the end of a job.
+place. With `SUMMARIZER=claude` or `SUMMARIZER=mistral` you need the matching API key
+(`ANTHROPIC_API_KEY` or `MISTRAL_API_KEY`); the server refuses to boot without it so you find
+out immediately rather than at the end of a job.
 
 ## Requirements
 
@@ -93,8 +95,10 @@ curl -fL -o data/models/Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf \
 
 | Variable | Required | Notes |
 |---|---|---|
-| `SUMMARIZER` | no | `claude` (default) or `local`. Transcription is on-device either way. |
+| `SUMMARIZER` | no | `claude` (default), `mistral` or `local`. Transcription is on-device either way. |
 | `ANTHROPIC_API_KEY` | only for `claude` | Boot fails without it, including on the `.env.example` placeholder. |
+| `MISTRAL_API_KEY` | only for `mistral` | Same boot-time check as `ANTHROPIC_API_KEY`. Get one at [console.mistral.ai](https://console.mistral.ai/api-keys). |
+| `MISTRAL_MODEL` | no | Default `mistral-large-latest`. |
 | `PODCASTINDEX_KEY` / `_SECRET` | no | Free from [podcastindex.org/api](https://podcastindex.org/api). Adds episode-level search and surfaces free publisher transcripts. Without it, iTunes only. |
 | `PORT` | no | Default `4300` — avoids the Firebase emulators (4000/5002/5003/9099/9199) and CRA (3000). |
 | `WHISPER_MODEL` | no | Default `large-v3-turbo`. `base`/`small` are much faster for testing. |
@@ -118,14 +122,18 @@ the context window. Output is constrained by a JSON schema. Server-side refusal 
 enabled, since Claude's safety classifiers occasionally decline benign true-crime or infosec
 episodes — remove `betas`/`fallbacks` in `summarize-claude.js` if you'd rather not use them.
 
+**Mistral (remote) backend.** Also one pass — Mistral Large's 128k context covers even long
+episodes — via a plain `fetch` to the hosted API (no SDK dependency), using the same
+`response_format: json_schema` structured-output contract as the local backend.
+
 **Local backend.** `llama-server` is spawned lazily, kept warm between jobs, and unloaded after
 `LLAMA_IDLE_MINUTES`. The JSON schema is compiled to a GBNF grammar, so output is structurally
 valid *by construction* rather than by hope. A transcript that fits the context window is
 summarized in one pass; a longer one is mapped to per-segment notes and then reduced. Roughly
 250 tokens per minute of speech, so 32k context covers about a 2-hour episode single-pass.
 
-Both backends share `summary-schema.js`, so their output is directly comparable. Because
-transcripts are cached, re-summarizing with the other backend costs one model call and no
+All three backends share `summary-schema.js`, so their output is directly comparable. Because
+transcripts are cached, re-summarizing with a different backend costs one model call and no
 re-transcription — the summary page has a **Re-run with…** button for exactly this.
 
 **Jobs** run in-process through a serial FIFO queue (whisper and Mistral both saturate the GPU)
@@ -151,6 +159,7 @@ src/
     summary-schema.js  shared output schema + prompts
     summarize.js       backend dispatcher
     summarize-claude.js
+    summarize-mistral.js hosted Mistral API, single-pass
     summarize-local.js llama.cpp backend, map-reduce for long transcripts
     llamaServer.js     llama-server lifecycle, tokenizer, chat
     pipeline.js        stage machine + progress events
@@ -195,4 +204,5 @@ mismatch, and sizes prompts against the *running* context window rather than the
 one. To start clean: `pkill -9 -f llama-server`.
 
 **Costs.** Claude is roughly $0.10–0.20 per episode; token counts are recorded on every summary.
-Local and transcription are free.
+Mistral's hosted API is billed separately (see [mistral.ai/pricing](https://mistral.ai/pricing));
+local and transcription are free.

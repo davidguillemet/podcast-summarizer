@@ -38,8 +38,13 @@ export const config = {
         key: process.env.PODCASTINDEX_KEY || '',
         secret: process.env.PODCASTINDEX_SECRET || ''
     },
-    // 'claude' (API, best quality) or 'local' (Mistral Small via llama.cpp, free/offline)
+    // 'claude' (API, best quality), 'mistral' (API, hosted Mistral Large) or
+    // 'local' (Mistral Small via llama.cpp, free/offline)
     summarizer: (process.env.SUMMARIZER || 'claude').toLowerCase(),
+    mistral: {
+        apiKey: process.env.MISTRAL_API_KEY || '',
+        model: process.env.MISTRAL_MODEL || 'mistral-large-latest'
+    },
     local: {
         modelFile: process.env.LOCAL_MODEL_FILE || 'Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf',
         port: Number(process.env.LLAMA_PORT) || 8110,
@@ -51,34 +56,39 @@ export const config = {
     }
 };
 
-export const usesClaude = () => config.summarizer !== 'local';
-
 /** Podcast Index is optional — the app degrades to iTunes-only without it. */
 export const hasPodcastIndex = () =>
     Boolean(config.podcastIndex.key && config.podcastIndex.secret);
+
+const SUMMARIZERS = ['claude', 'mistral', 'local'];
+
+/**
+ * A key is missing, or still the placeholder from .env.example (non-empty, so a naive
+ * presence check would let it through and the run would die at the very last step instead).
+ */
+function checkApiKey(problems, envVar, key) {
+    if (!key) {
+        problems.push(
+            `${envVar} is missing — copy .env.example to .env and fill it in, ` +
+                `or set SUMMARIZER to one of the other backends instead.`
+        );
+    } else if (key.endsWith('...')) {
+        problems.push(`${envVar} is still the placeholder from .env.example — paste your real key.`);
+    }
+}
 
 /** Fail loudly at boot rather than 90% of the way through a job. */
 export function assertConfig() {
     const problems = [];
 
-    if (!['claude', 'local'].includes(config.summarizer)) {
-        problems.push(`SUMMARIZER must be "claude" or "local" (got "${config.summarizer}").`);
+    if (!SUMMARIZERS.includes(config.summarizer)) {
+        problems.push(`SUMMARIZER must be one of ${SUMMARIZERS.join(', ')} (got "${config.summarizer}").`);
     }
 
-    // The API key only matters for the Claude backend; the local one needs no credentials.
-    if (usesClaude()) {
-        const key = config.anthropicApiKey;
-        if (!key) {
-            problems.push(
-                'ANTHROPIC_API_KEY is missing — copy .env.example to .env and fill it in, ' +
-                    'or set SUMMARIZER=local to summarize on-device instead.'
-            );
-        } else if (key === 'sk-ant-...' || key.endsWith('...')) {
-            // The .env.example placeholder is non-empty, so a naive presence check
-            // lets it through and the run dies at the very last step instead.
-            problems.push('ANTHROPIC_API_KEY is still the placeholder from .env.example — paste your real key.');
-        }
-    }
+    // The API keys only matter for the backend actually selected; the local one needs no credentials.
+    if (config.summarizer === 'claude') checkApiKey(problems, 'ANTHROPIC_API_KEY', config.anthropicApiKey);
+    if (config.summarizer === 'mistral') checkApiKey(problems, 'MISTRAL_API_KEY', config.mistral.apiKey);
+
     if (problems.length > 0) {
         throw new Error(`Configuration error:\n  - ${problems.join('\n  - ')}`);
     }

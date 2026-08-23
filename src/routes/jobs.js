@@ -27,8 +27,8 @@ router.post('/jobs', (req, res) => {
     if (!episode) return res.status(404).json({ error: 'Episode not found' });
 
     const backend = req.body?.backend ?? null;
-    if (backend && !['claude', 'local'].includes(backend)) {
-        return res.status(400).json({ error: 'backend must be "claude" or "local"' });
+    if (backend && !['claude', 'mistral', 'local'].includes(backend)) {
+        return res.status(400).json({ error: 'backend must be "claude", "mistral" or "local"' });
     }
 
     // Don't queue a second run for an episode already in flight.

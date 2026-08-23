@@ -53,7 +53,8 @@ const session = {
 };
 let activeStream = null;
 
-const BACKEND_LABEL = { claude: 'Claude', local: 'Mistral (local)' };
+const BACKEND_LABEL = { claude: 'Claude', mistral: 'Mistral (remote)', local: 'Mistral (local)' };
+const BACKEND_ORDER = ['claude', 'mistral', 'local'];
 
 /** Feed URLs vary by trailing slash / case; normalize before comparing search results to DB rows. */
 const normalizeFeedUrl = (url) => String(url || '').trim().toLowerCase().replace(/\/+$/, '');
@@ -68,7 +69,7 @@ const currentBackend = () => session.backend || session.status?.summarizer || 'c
 
 function backendPicker() {
     const available = session.status?.backends ?? {};
-    const options = ['claude', 'local'].filter((b) => available[b]);
+    const options = BACKEND_ORDER.filter((b) => available[b]);
     if (options.length < 2) return '';
     return `
         <label class="small muted" style="display:flex;align-items:center;gap:6px">
@@ -437,7 +438,9 @@ async function viewSummary(episodeId, summaryId) {
             </div>
             <div class="row">
                 <a class="small" href="#/episode/${episode.id}/history">All runs</a>
-                ${otherBackend(summary.backend) ? `<button class="small" id="rerun">Re-run with ${esc(BACKEND_LABEL[otherBackend(summary.backend)])}</button>` : ''}
+                ${otherBackends(summary.backend)
+                    .map((b) => `<button class="small" data-action="rerun" data-backend="${b}">Re-run with ${esc(BACKEND_LABEL[b])}</button>`)
+                    .join('')}
                 <button class="small" id="copy">Copy Markdown</button>
                 <button class="small danger" id="delete">Delete</button>
             </div>
@@ -518,21 +521,25 @@ async function viewSummary(episodeId, summaryId) {
         }
     });
 
-    document.getElementById('rerun')?.addEventListener('click', async (e) => {
-        const target = otherBackend(summary.backend);
-        e.target.disabled = true;
-        e.target.textContent = 'Starting…';
-        try {
-            // The transcript is cached, so this re-runs only the model call.
-            const res = await api('/jobs', {
-                method: 'POST',
-                body: JSON.stringify({ episodeId: episode.id, backend: target })
-            });
-            location.hash = `#/job/${res.job.id}`;
-        } catch (err) {
-            app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
-            e.target.disabled = false;
-        }
+    document.querySelectorAll('[data-action="rerun"]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const target = btn.dataset.backend;
+            const label = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Starting…';
+            try {
+                // The transcript is cached, so this re-runs only the model call.
+                const res = await api('/jobs', {
+                    method: 'POST',
+                    body: JSON.stringify({ episodeId: episode.id, backend: target })
+                });
+                location.hash = `#/job/${res.job.id}`;
+            } catch (err) {
+                app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+                btn.disabled = false;
+                btn.textContent = label;
+            }
+        });
     });
 }
 
@@ -551,8 +558,11 @@ async function viewHistory(episodeId) {
     const { episode, show, summaries } = data;
     app.innerHTML = `
         <a class="small" href="#/show/${show.id}">← ${esc(show.title)}</a>
-        <h1 style="margin-top:14px">${esc(episode.title)}</h1>
-        <div class="muted small">All summary runs — ${summaries.length}</div>
+        <div class="spread" style="align-items:center; margin-top:14px">
+            <h1 style="margin:0">${esc(episode.title)}</h1>
+            <button class="small primary" id="compare" disabled>Compare selected</button>
+        </div>
+        <div class="muted small">All summary runs — ${summaries.length}. Select two or more to compare.</div>
         <div id="runs" style="margin-top:16px"></div>
     `;
 
@@ -562,6 +572,7 @@ async function viewHistory(episodeId) {
               .map(
                   (s) => `
         <div class="episode" data-id="${s.id}">
+            <input type="checkbox" class="compare-check" data-id="${s.id}" style="margin-right:2px" />
             <div class="episode-main">
                 <div class="episode-title">${esc(s.data?.title || episode.title)}</div>
                 <div class="muted small">
@@ -579,6 +590,18 @@ async function viewHistory(episodeId) {
               )
               .join('')
         : '<div class="notice">No summaries left for this episode.</div>';
+
+    const compareBtn = document.getElementById('compare');
+    const checks = () => document.querySelectorAll('.compare-check');
+    checks().forEach((cb) =>
+        cb.addEventListener('change', () => {
+            compareBtn.disabled = document.querySelectorAll('.compare-check:checked').length < 2;
+        })
+    );
+    compareBtn.addEventListener('click', () => {
+        const ids = [...document.querySelectorAll('.compare-check:checked')].map((cb) => cb.dataset.id);
+        location.hash = `#/episode/${episode.id}/compare/${ids.join(',')}`;
+    });
 
     list.addEventListener('click', async (event) => {
         const btn = event.target.closest('button[data-action]');
@@ -599,6 +622,87 @@ async function viewHistory(episodeId) {
             btn.textContent = 'Delete';
         }
     });
+}
+
+/** Side-by-side comparison of two or more runs for the same episode. */
+async function viewCompare(episodeId, idsParam) {
+    const ids = idsParam.split(',').filter(Boolean);
+    app.innerHTML = '<div class="loading">Loading comparison…</div>';
+    let results;
+    try {
+        results = await Promise.all(ids.map((id) => api(`/summaries/${id}`)));
+    } catch (err) {
+        app.innerHTML = `<div class="notice error">${esc(err.message)}</div>
+                         <a class="small" href="#/episode/${episodeId}/history">← All runs</a>`;
+        return;
+    }
+
+    const { show, episode } = results[0];
+    app.style.maxWidth = '1400px';
+    app.innerHTML = `
+        <a class="small" href="#/episode/${episodeId}/history">← All runs</a>
+        <h1 style="margin-top:14px">${esc(episode.title)}</h1>
+        <div class="muted small">${esc(show.title)} · comparing ${results.length} runs</div>
+        <div class="compare-grid" style="grid-template-columns: repeat(${results.length}, 1fr)">
+            ${results.map(renderCompareColumn).join('')}
+        </div>
+    `;
+}
+
+function renderCompareColumn({ episode, summary }) {
+    const s = summary.data;
+    return `
+    <div class="compare-col">
+        <div class="row" style="justify-content:space-between">
+            <span class="badge">${esc(BACKEND_LABEL[summary.backend] || summary.backend || 'unknown')}</span>
+            <span class="muted small">${summary.input_tokens ?? '?'} in / ${summary.output_tokens ?? '?'} out</span>
+        </div>
+        <div class="muted small" style="margin-top:4px">${esc(summary.model || '')} · ${esc(formatDate(summary.created_at))}</div>
+
+        <h3 style="margin-top:14px">${esc(s.title || episode.title)}</h3>
+        <div class="tldr">${esc(s.tldr)}</div>
+
+        ${
+            s.chapters?.length
+                ? `<h4>Chapters</h4><div>${s.chapters
+                      .map(
+                          (c) => `<div class="chapter">
+                            <div class="ts">${esc(c.start)}</div>
+                            <div><h3>${esc(c.title)}</h3><div class="muted small">${esc(c.summary)}</div></div>
+                          </div>`
+                      )
+                      .join('')}</div>`
+                : ''
+        }
+
+        ${
+            s.key_points?.length
+                ? `<h4>Key points</h4><ul class="points">${s.key_points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>`
+                : ''
+        }
+
+        ${
+            s.quotes?.length
+                ? `<h4>Quotes</h4><div>${s.quotes
+                      .map(
+                          (q) => `<div class="quote">“${esc(q.text)}”
+                            <div class="quote-meta">${esc(q.speaker)} · ${esc(q.timestamp)}</div></div>`
+                      )
+                      .join('')}</div>`
+                : ''
+        }
+
+        ${
+            s.people_and_terms?.length
+                ? `<h4>People &amp; terms</h4><div class="terms">${s.people_and_terms
+                      .map(
+                          (t) => `<div class="term"><div class="term-name">${esc(t.name)}</div>
+                            <div class="term-note">${esc(t.note)}</div></div>`
+                      )
+                      .join('')}</div>`
+                : ''
+        }
+    </div>`;
 }
 
 /**
@@ -664,10 +768,10 @@ async function viewTranscript(episodeId) {
 }
 
 /** The backend a summary was NOT produced with, if that one is also available. */
-function otherBackend(used) {
+/** Every backend available besides the one already used for this summary. */
+function otherBackends(used) {
     const available = session.status?.backends ?? {};
-    const target = used === 'local' ? 'claude' : 'local';
-    return available[target] ? target : null;
+    return BACKEND_ORDER.filter((b) => b !== used && available[b]);
 }
 
 function toMarkdown(s, episode, show) {
@@ -797,7 +901,10 @@ async function viewLibrary() {
 
     const pendingCount = items.filter((it) => it.status === 'not_summarized').length;
     app.innerHTML = `
-        <h1>Library</h1>
+        <div class="spread" style="align-items:center">
+            <h1>Library</h1>
+            ${pendingCount ? backendPicker() : ''}
+        </div>
         <p class="muted small">
             ${items.length} episode${items.length === 1 ? '' : 's'}
             ${pendingCount ? `— ${pendingCount} awaiting summary` : 'summarized'}.
@@ -834,6 +941,7 @@ async function viewLibrary() {
             </div>`
             )
             .join('')}</div>`;
+    wireBackendPicker();
 
     app.querySelectorAll('.card').forEach((el) => {
         if (el.dataset.status === 'summarized') {
@@ -889,6 +997,8 @@ async function viewLibrary() {
 
 function router() {
     closeStream();
+    // Only viewCompare opts into a wider layout; every other view starts from the default.
+    app.style.maxWidth = '';
     const hash = location.hash.replace(/^#/, '') || '/';
     const [, section, param, sub, subParam] = hash.split('/');
 
@@ -896,6 +1006,7 @@ function router() {
     if (section === 'job' && param) return void viewJob(param);
     if (section === 'episode' && param && sub === 'history') return void viewHistory(param);
     if (section === 'episode' && param && sub === 'transcript') return void viewTranscript(param);
+    if (section === 'episode' && param && sub === 'compare' && subParam) return void viewCompare(param, subParam);
     if (section === 'episode' && param && sub === 'summary' && subParam) return void viewSummary(param, subParam);
     if (section === 'episode' && param) return void viewSummary(param);
     if (section === 'library') return void viewLibrary();

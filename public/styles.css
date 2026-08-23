@@ -330,3 +330,28 @@ ul.points li { margin-bottom: 7px; }
 }
 .transcript-text p { margin: 0 0 14px; }
 .transcript-text p:last-child { margin-bottom: 0; }
+
+/* --------------------------------------------------------------- compare */
+
+.compare-grid {
+    display: grid;
+    gap: 20px;
+    align-items: start;
+    margin-top: 20px;
+    overflow-x: auto;
+}
+.compare-col {
+    min-width: 0;
+    padding: 16px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+.compare-col .tldr { font-size: 14px; padding: 12px 14px; }
+.compare-col h4 {
+    font-size: 12px;
+    margin: 20px 0 8px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}

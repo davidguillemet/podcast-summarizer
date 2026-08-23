@@ -71,9 +71,10 @@ line that isn't there silently does nothing. When adding a config key, update bo
 
 ## Architecture notes
 
-**Two summarizer backends, one contract.** `summary-schema.js` holds the JSON schema and prompts
-used by *both* `summarize-claude.js` and `summarize-local.js`; `summarize.js` is just a
-dispatcher. Keep the schema shared — comparing backends on the same episode is a core feature
+**Three summarizer backends, one contract.** `summary-schema.js` holds the JSON schema and
+prompts used by `summarize-claude.js`, `summarize-mistral.js` (hosted Mistral API) and
+`summarize-local.js` (llama.cpp); `summarize.js` is just a dispatcher keyed by backend name.
+Keep the schema shared — comparing backends on the same episode is a core feature
 (`GET /api/episodes/:id/summaries`, and the "Re-run with…" button).
 
 **Transcripts are cached in SQLite and stages are skipped when their artifacts exist.** This is

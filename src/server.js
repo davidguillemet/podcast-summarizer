@@ -32,6 +32,7 @@ app.get('/api/status', (_req, res) => {
         summarizer: config.summarizer,
         backends: {
             claude: Boolean(config.anthropicApiKey) && !config.anthropicApiKey.endsWith('...'),
+            mistral: Boolean(config.mistral.apiKey) && !config.mistral.apiKey.endsWith('...'),
             local: fs.existsSync(binaryPath()) && fs.existsSync(modelPath())
         },
         localModel: config.local.modelFile.replace(/\.gguf$/i, '')

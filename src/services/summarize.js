@@ -1,13 +1,14 @@
 import { config } from '../config.js';
 import * as claude from './summarize-claude.js';
+import * as mistral from './summarize-mistral.js';
 import * as local from './summarize-local.js';
 
 /**
- * Backend dispatcher. Both implementations share `summary-schema.js`, so their
- * output is directly comparable — re-summarizing a cached transcript with the
- * other backend costs one model call and no re-transcription.
+ * Backend dispatcher. All three implementations share `summary-schema.js`, so their
+ * output is directly comparable — re-summarizing a cached transcript with another
+ * backend costs one model call and no re-transcription.
  */
-const backends = { claude, local };
+const backends = { claude, mistral, local };
 
 export const resolveBackend = (name) => backends[name] ?? backends.claude;
 
@@ -16,9 +17,9 @@ export function summarizeTranscript(transcriptText, options = {}) {
     return resolveBackend(name).summarizeTranscript(transcriptText, options);
 }
 
-/** Rough cost estimate for the Claude backend. Opus 5: $5/$25 per MTok. Local is free. */
+/** Rough cost estimate for the Claude backend. Opus 5: $5/$25 per MTok. Local is free; Mistral's API has a cost too, just not modeled here. */
 export function estimateCost(usage, backend = config.summarizer) {
-    if (backend === 'local' || !usage) return 0;
+    if (backend !== 'claude' || !usage) return 0;
     const input = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0);
     const output = usage.output_tokens ?? 0;
     return Number(((input * 5) / 1e6 + (output * 25) / 1e6).toFixed(4));
