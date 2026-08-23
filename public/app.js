@@ -329,11 +329,11 @@ function viewJob(jobId) {
     };
 }
 
-async function viewSummary(episodeId) {
+async function viewSummary(episodeId, summaryId) {
     app.innerHTML = '<div class="loading">Loading summary…</div>';
     let data;
     try {
-        data = await api(`/episodes/${episodeId}/summary`);
+        data = summaryId ? await api(`/summaries/${summaryId}`) : await api(`/episodes/${episodeId}/summary`);
     } catch (err) {
         app.innerHTML = `<div class="notice error">${esc(err.message)}</div>
                          <a class="small" href="#/">Back to search</a>`;
@@ -358,8 +358,10 @@ async function viewSummary(episodeId) {
                 </div>
             </div>
             <div class="row">
+                <a class="small" href="#/episode/${episode.id}/history">All runs</a>
                 ${otherBackend(summary.backend) ? `<button class="small" id="rerun">Re-run with ${esc(BACKEND_LABEL[otherBackend(summary.backend)])}</button>` : ''}
                 <button class="small" id="copy">Copy Markdown</button>
+                <button class="small danger" id="delete">Delete</button>
             </div>
         </div>
 
@@ -414,7 +416,7 @@ async function viewSummary(episodeId) {
             Model ${esc(summary.model)} ·
             ${summary.input_tokens ?? '?'} in / ${summary.output_tokens ?? '?'} out tokens ·
             generated ${esc(formatDate(summary.created_at))}
-            · <a href="/api/episodes/${episode.id}/transcript" target="_blank">view raw transcript</a>
+            · <a href="#/episode/${episode.id}/transcript">view transcript</a>
         </div>
     `;
 
@@ -422,6 +424,20 @@ async function viewSummary(episodeId) {
         await navigator.clipboard.writeText(toMarkdown(s, episode, show));
         e.target.textContent = 'Copied';
         setTimeout(() => (e.target.textContent = 'Copy Markdown'), 1500);
+    });
+
+    document.getElementById('delete').addEventListener('click', async (e) => {
+        if (!confirm('Delete this summary? The transcript is kept, so you can re-summarize later.')) return;
+        e.target.disabled = true;
+        e.target.textContent = 'Deleting…';
+        try {
+            await api(`/summaries/${summary.id}`, { method: 'DELETE' });
+            location.hash = `#/episode/${episode.id}/history`;
+        } catch (err) {
+            app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+            e.target.disabled = false;
+            e.target.textContent = 'Delete';
+        }
     });
 
     document.getElementById('rerun')?.addEventListener('click', async (e) => {
@@ -439,6 +455,133 @@ async function viewSummary(episodeId) {
             app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
             e.target.disabled = false;
         }
+    });
+}
+
+/** All summary runs for an episode, newest first — lets duplicates and old runs be reviewed and deleted. */
+async function viewHistory(episodeId) {
+    app.innerHTML = '<div class="loading">Loading history…</div>';
+    let data;
+    try {
+        data = await api(`/episodes/${episodeId}/summaries`);
+    } catch (err) {
+        app.innerHTML = `<div class="notice error">${esc(err.message)}</div>
+                         <a class="small" href="#/">Back to search</a>`;
+        return;
+    }
+
+    const { episode, show, summaries } = data;
+    app.innerHTML = `
+        <a class="small" href="#/show/${show.id}">← ${esc(show.title)}</a>
+        <h1 style="margin-top:14px">${esc(episode.title)}</h1>
+        <div class="muted small">All summary runs — ${summaries.length}</div>
+        <div id="runs" style="margin-top:16px"></div>
+    `;
+
+    const list = document.getElementById('runs');
+    list.innerHTML = summaries.length
+        ? summaries
+              .map(
+                  (s) => `
+        <div class="episode" data-id="${s.id}">
+            <div class="episode-main">
+                <div class="episode-title">${esc(s.data?.title || episode.title)}</div>
+                <div class="muted small">
+                    <span class="badge">${esc(BACKEND_LABEL[s.backend] || s.backend || 'unknown')}</span>
+                    ${esc(s.model || '')} ·
+                    ${s.input_tokens ?? '?'} in / ${s.output_tokens ?? '?'} out ·
+                    ${esc(formatDate(s.created_at))}
+                </div>
+            </div>
+            <div class="row">
+                <button class="small" data-action="view" data-id="${s.id}">View</button>
+                <button class="small danger" data-action="delete" data-id="${s.id}">Delete</button>
+            </div>
+        </div>`
+              )
+              .join('')
+        : '<div class="notice">No summaries left for this episode.</div>';
+
+    list.addEventListener('click', async (event) => {
+        const btn = event.target.closest('button[data-action]');
+        if (!btn) return;
+        const { action, id } = btn.dataset;
+
+        if (action === 'view') return void (location.hash = `#/episode/${episode.id}/summary/${id}`);
+
+        if (!confirm('Delete this summary? The transcript is kept, so you can re-summarize later.')) return;
+        btn.disabled = true;
+        btn.textContent = 'Deleting…';
+        try {
+            await api(`/summaries/${id}`, { method: 'DELETE' });
+            viewHistory(episodeId);
+        } catch (err) {
+            app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+            btn.disabled = false;
+            btn.textContent = 'Delete';
+        }
+    });
+}
+
+/**
+ * Whisper writes one line per short recognized segment (a few words each), so rendering one
+ * <p> per line reads as a choppy list, not prose. Reflow into sentence-grouped paragraphs instead.
+ */
+function groupIntoParagraphs(text, targetLength = 500) {
+    const flat = text.replace(/\s+/g, ' ').trim();
+    const sentences = flat.match(/[^.!?…]+[.!?…]+(\s+|$)/g) || [flat];
+    const paragraphs = [];
+    let current = '';
+    for (const sentence of sentences) {
+        if (current && current.length + sentence.length > targetLength) {
+            paragraphs.push(current.trim());
+            current = '';
+        }
+        current += sentence;
+    }
+    if (current.trim()) paragraphs.push(current.trim());
+    return paragraphs;
+}
+
+/** The full transcript, read in-app as paragraphs instead of a raw text file in a new tab. */
+async function viewTranscript(episodeId) {
+    app.innerHTML = '<div class="loading">Loading transcript…</div>';
+    let data;
+    try {
+        data = await api(`/episodes/${episodeId}/transcript?format=json`);
+    } catch (err) {
+        app.innerHTML = `<div class="notice error">${esc(err.message)}</div>
+                         <a class="small" href="#/">Back to search</a>`;
+        return;
+    }
+
+    const { episode, show, transcript } = data;
+    const paragraphs = groupIntoParagraphs(transcript.text);
+
+    app.innerHTML = `
+        <a class="small" href="#/show/${show.id}">← ${esc(show.title)}</a>
+        <div class="spread" style="margin-top:14px">
+            <div>
+                <h1>${esc(episode.title)}</h1>
+                <div class="muted small">${esc(show.title)}</div>
+                <div class="meta-line">
+                    <span class="badge neutral">${formatDuration(transcript.duration_sec || episode.duration_sec)}</span>
+                    <span class="badge neutral">${esc(transcript.source === 'publisher' ? 'publisher transcript' : 'whisper')}</span>
+                    ${transcript.language ? `<span class="badge neutral">${esc(transcript.language)}</span>` : ''}
+                </div>
+            </div>
+            <div class="row">
+                <button class="small" id="copy-transcript">Copy transcript</button>
+            </div>
+        </div>
+
+        <div class="transcript-text">${paragraphs.map((p) => `<p>${esc(p)}</p>`).join('')}</div>
+    `;
+
+    document.getElementById('copy-transcript').addEventListener('click', async (e) => {
+        await navigator.clipboard.writeText(transcript.text);
+        e.target.textContent = 'Copied';
+        setTimeout(() => (e.target.textContent = 'Copy transcript'), 1500);
     });
 }
 
@@ -477,17 +620,21 @@ async function viewLibrary() {
 
     if (items.length === 0) {
         app.innerHTML = `<h1>Library</h1>
-            <div class="notice">Nothing summarized yet. <a href="#/">Find a podcast</a> to get started.</div>`;
+            <div class="notice">Nothing transcribed yet. <a href="#/">Find a podcast</a> to get started.</div>`;
         return;
     }
 
+    const pendingCount = items.filter((it) => it.status === 'not_summarized').length;
     app.innerHTML = `
         <h1>Library</h1>
-        <p class="muted small">${items.length} episode${items.length === 1 ? '' : 's'} summarized.</p>
+        <p class="muted small">
+            ${items.length} episode${items.length === 1 ? '' : 's'}
+            ${pendingCount ? `— ${pendingCount} awaiting summary` : 'summarized'}.
+        </p>
         <div class="cards">${items
             .map(
                 (it) => `
-            <button class="card" data-id="${it.episode_id}">
+            <div class="card" data-id="${it.episode_id}" data-status="${it.status}">
                 <img class="art" src="${esc(it.artwork_url || '')}" alt="" onerror="this.style.visibility='hidden'" />
                 <div class="card-body">
                     <div class="card-title">${esc(it.episode_title)}</div>
@@ -496,15 +643,74 @@ async function viewLibrary() {
                         <span class="badge neutral">${esc(formatDate(it.created_at))}</span>
                         <span class="badge neutral">${formatDuration(it.duration_sec)}</span>
                         <span class="badge neutral">${esc(it.transcript_source || '')}</span>
-                        ${it.backend ? `<span class="badge">${esc(BACKEND_LABEL[it.backend] || it.backend)}</span>` : ''}
+                        ${
+                            it.status === 'not_summarized'
+                                ? '<span class="badge warn">not summarized</span>'
+                                : `<span class="badge">${esc(BACKEND_LABEL[it.backend] || it.backend)}</span>`
+                        }
                     </div>
                 </div>
-            </button>`
+                <div class="row" style="align-self:center;flex-shrink:0">
+                    <a class="small" href="#/episode/${it.episode_id}/transcript"
+                       onclick="event.stopPropagation()">Transcript</a>
+                    ${
+                        it.status === 'not_summarized'
+                            ? `<button class="small primary" data-action="summarize" data-id="${it.episode_id}">Summarize</button>`
+                            : ''
+                    }
+                    <button class="small danger" data-action="delete" data-id="${it.episode_id}">Delete</button>
+                </div>
+            </div>`
             )
             .join('')}</div>`;
 
-    app.querySelectorAll('.card').forEach((el) =>
-        el.addEventListener('click', () => (location.hash = `#/episode/${el.dataset.id}`))
+    app.querySelectorAll('.card').forEach((el) => {
+        if (el.dataset.status === 'summarized') {
+            el.style.cursor = 'pointer';
+            el.addEventListener('click', () => (location.hash = `#/episode/${el.dataset.id}`));
+        }
+    });
+
+    app.querySelectorAll('[data-action="summarize"]').forEach((btn) =>
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            btn.disabled = true;
+            btn.textContent = 'Starting…';
+            try {
+                const res = await api('/jobs', {
+                    method: 'POST',
+                    body: JSON.stringify({ episodeId: Number(btn.dataset.id), backend: currentBackend() })
+                });
+                location.hash = `#/job/${res.job.id}`;
+            } catch (err) {
+                app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+                btn.disabled = false;
+                btn.textContent = 'Summarize';
+            }
+        })
+    );
+
+    app.querySelectorAll('[data-action="delete"]').forEach((btn) =>
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (
+                !confirm(
+                    'Delete the transcript and all summaries for this episode? ' +
+                        'This can\'t be undone — getting a new summary will mean re-downloading and re-transcribing the audio.'
+                )
+            )
+                return;
+            btn.disabled = true;
+            btn.textContent = 'Deleting…';
+            try {
+                await api(`/episodes/${btn.dataset.id}/transcript`, { method: 'DELETE' });
+                viewLibrary();
+            } catch (err) {
+                app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+                btn.disabled = false;
+                btn.textContent = 'Delete';
+            }
+        })
     );
 }
 
@@ -513,10 +719,13 @@ async function viewLibrary() {
 function router() {
     closeStream();
     const hash = location.hash.replace(/^#/, '') || '/';
-    const [, section, param] = hash.split('/');
+    const [, section, param, sub, subParam] = hash.split('/');
 
     if (section === 'show' && param) return void viewShow(param);
     if (section === 'job' && param) return void viewJob(param);
+    if (section === 'episode' && param && sub === 'history') return void viewHistory(param);
+    if (section === 'episode' && param && sub === 'transcript') return void viewTranscript(param);
+    if (section === 'episode' && param && sub === 'summary' && subParam) return void viewSummary(param, subParam);
     if (section === 'episode' && param) return void viewSummary(param);
     if (section === 'library') return void viewLibrary();
     return void viewSearch();

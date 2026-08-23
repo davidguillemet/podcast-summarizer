@@ -130,6 +130,7 @@ button:hover:not(:disabled) { border-color: var(--accent); }
 button:disabled { opacity: 0.5; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary:hover:not(:disabled) { filter: brightness(1.1); }
+button.danger:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
 button.small { padding: 5px 10px; font-size: 13px; }
 
 .row { display: flex; gap: 10px; align-items: center; }
@@ -202,6 +203,9 @@ button.small { padding: 5px 10px; font-size: 13px; }
 }
 .badge.neutral { background: var(--surface-2); color: var(--muted); }
 .badge.done { background: rgba(88, 201, 138, 0.14); color: var(--success); }
+.badge.warn { background: rgba(229, 181, 103, 0.16); color: var(--warn); }
+
+.card[data-status="not_summarized"] { cursor: default; }
 
 /* -------------------------------------------------------------- episodes */
 
@@ -299,3 +303,15 @@ ul.points li { margin-bottom: 7px; }
 .term-note { color: var(--muted); font-size: 13px; }
 
 .meta-line { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+.transcript-text {
+    margin-top: 20px;
+    padding: 20px 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 15px;
+    line-height: 1.75;
+}
+.transcript-text p { margin: 0 0 14px; }
+.transcript-text p:last-child { margin-bottom: 0; }

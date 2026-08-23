@@ -5,8 +5,11 @@ import {
     getJob,
     getActiveJobForEpisode,
     getSummary,
+    getSummaryById,
     listSummaries,
+    deleteSummary,
     getTranscript,
+    deleteTranscript,
     createJob
 } from '../db.js';
 import { enqueue, position, queueState } from '../queue.js';
@@ -75,16 +78,10 @@ router.get('/jobs/:id/events', (req, res) => {
     });
 });
 
-router.get('/episodes/:id/summary', (req, res) => {
-    const episodeId = Number(req.params.id);
-    const episode = getEpisode(episodeId);
-    if (!episode) return res.status(404).json({ error: 'Episode not found' });
-
-    const summary = getSummary(episodeId);
-    if (!summary) return res.status(404).json({ error: 'No summary yet for this episode' });
-
-    const transcript = getTranscript(episodeId);
-    res.json({
+/** Shared response shape for both the "latest" and "one specific run" summary views. */
+function summaryDetail(episode, summary) {
+    const transcript = getTranscript(episode.id);
+    return {
         episode,
         show: getShow(episode.show_id),
         summary: {
@@ -100,14 +97,35 @@ router.get('/episodes/:id/summary', (req, res) => {
                   chars: transcript.text.length
               }
             : null
-    });
+    };
+}
+
+router.get('/episodes/:id/summary', (req, res) => {
+    const episodeId = Number(req.params.id);
+    const episode = getEpisode(episodeId);
+    if (!episode) return res.status(404).json({ error: 'Episode not found' });
+
+    const summary = getSummary(episodeId);
+    if (!summary) return res.status(404).json({ error: 'No summary yet for this episode' });
+
+    res.json(summaryDetail(episode, summary));
 });
 
-/** Every summary generated for this episode — lets the UI compare backends side by side. */
+/** One specific summary run, addressed by its own id — used by the history view. */
+router.get('/summaries/:id', (req, res) => {
+    const summary = getSummaryById(Number(req.params.id));
+    if (!summary) return res.status(404).json({ error: 'Summary not found' });
+    res.json(summaryDetail(getEpisode(summary.episode_id), summary));
+});
+
+/** Every summary generated for this episode — lets the UI compare backends and past runs. */
 router.get('/episodes/:id/summaries', (req, res) => {
     const episodeId = Number(req.params.id);
-    if (!getEpisode(episodeId)) return res.status(404).json({ error: 'Episode not found' });
+    const episode = getEpisode(episodeId);
+    if (!episode) return res.status(404).json({ error: 'Episode not found' });
     res.json({
+        episode,
+        show: getShow(episode.show_id),
         summaries: listSummaries(episodeId).map((s) => ({
             ...s,
             data: JSON.parse(s.json),
@@ -116,10 +134,42 @@ router.get('/episodes/:id/summaries', (req, res) => {
     });
 });
 
+/** Delete one summary run. The transcript is untouched, so re-summarizing stays cheap. */
+router.delete('/summaries/:id', (req, res) => {
+    const summary = getSummaryById(Number(req.params.id));
+    if (!summary) return res.status(404).json({ error: 'Summary not found' });
+    deleteSummary(summary.id);
+    res.json({ ok: true, episodeId: summary.episode_id });
+});
+
+/** `?format=json` returns episode/show context alongside the text, for the in-app reading view. */
 router.get('/episodes/:id/transcript', (req, res) => {
-    const transcript = getTranscript(Number(req.params.id));
+    const episodeId = Number(req.params.id);
+    const transcript = getTranscript(episodeId);
     if (!transcript) return res.status(404).json({ error: 'No transcript for this episode' });
+
+    if (req.query.format === 'json') {
+        const episode = getEpisode(episodeId);
+        return res.json({
+            episode,
+            show: getShow(episode.show_id),
+            transcript: {
+                text: transcript.text,
+                language: transcript.language,
+                source: transcript.source,
+                duration_sec: transcript.duration_sec
+            }
+        });
+    }
     res.type('text/plain').send(transcript.text);
+});
+
+/** Drop the transcript and every summary for this episode — the whole pipeline result. */
+router.delete('/episodes/:id/transcript', (req, res) => {
+    const episodeId = Number(req.params.id);
+    if (!getEpisode(episodeId)) return res.status(404).json({ error: 'Episode not found' });
+    if (!deleteTranscript(episodeId)) return res.status(404).json({ error: 'No transcript for this episode' });
+    res.json({ ok: true });
 });
 
 /** Drop cached media for an episode; the transcript and summary are kept. */

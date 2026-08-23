@@ -239,6 +239,15 @@ export function saveTranscript(t) {
 const selectTranscript = db.prepare('SELECT * FROM transcripts WHERE episode_id = ?');
 export const getTranscript = (episodeId) => selectTranscript.get(episodeId);
 
+const deleteSummariesForEpisode = db.prepare('DELETE FROM summaries WHERE episode_id = ?');
+const deleteTranscriptStmt = db.prepare('DELETE FROM transcripts WHERE episode_id = ?');
+
+/** Drops the whole pipeline result for an episode — every summary plus the transcript itself. */
+export const deleteTranscript = db.transaction((episodeId) => {
+    deleteSummariesForEpisode.run(episodeId);
+    return deleteTranscriptStmt.run(episodeId).changes > 0;
+});
+
 /* -------------------------------------------------------------- summaries */
 
 const insertSummary = db.prepare(`
@@ -269,17 +278,29 @@ const selectSummary = db.prepare(
 );
 export const getSummary = (episodeId) => selectSummary.get(episodeId);
 
+const selectSummaryById = db.prepare('SELECT * FROM summaries WHERE id = ?');
+export const getSummaryById = (id) => selectSummaryById.get(id);
+
+const deleteSummaryStmt = db.prepare('DELETE FROM summaries WHERE id = ?');
+export const deleteSummary = (id) => deleteSummaryStmt.run(id).changes > 0;
+
+/**
+ * Rooted at transcripts, not summaries, so an episode whose only summary was deleted still
+ * shows up (as "not_summarized") instead of vanishing — the transcript is the expensive,
+ * cached artifact and deleting a summary must not hide that it already exists.
+ */
 const selectLibrary = db.prepare(`
-    SELECT s.id AS summary_id, s.created_at, s.model, s.backend, s.input_tokens, s.output_tokens,
+    SELECT s.id AS summary_id, COALESCE(s.created_at, t.created_at) AS created_at,
+           s.model, s.backend, s.input_tokens, s.output_tokens,
            e.id AS episode_id, e.title AS episode_title, e.published_at, e.duration_sec,
            sh.id AS show_id, sh.title AS show_title, sh.artwork_url,
-           t.source AS transcript_source
-      FROM summaries s
-      JOIN episodes e  ON e.id = s.episode_id
+           t.source AS transcript_source,
+           CASE WHEN s.id IS NULL THEN 'not_summarized' ELSE 'summarized' END AS status
+      FROM transcripts t
+      JOIN episodes e  ON e.id = t.episode_id
       JOIN shows sh    ON sh.id = e.show_id
- LEFT JOIN transcripts t ON t.episode_id = e.id
-     WHERE s.id = (SELECT MAX(s2.id) FROM summaries s2 WHERE s2.episode_id = s.episode_id)
-     ORDER BY s.created_at DESC
+ LEFT JOIN summaries s ON s.id = (SELECT MAX(s2.id) FROM summaries s2 WHERE s2.episode_id = t.episode_id)
+     ORDER BY created_at DESC
 `);
 export const listLibrary = () => selectLibrary.all();
 
