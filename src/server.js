@@ -2,7 +2,8 @@ import express from 'express';
 import fs from 'node:fs';
 import { config, paths, hasPodcastIndex, assertConfig } from './config.js';
 import { binaryPath, modelPath } from './services/llamaServer.js';
-import { recoverInterruptedJobs } from './db.js';
+import { recoverInterruptedJobs, getSession, deleteExpiredSessions } from './db.js';
+import authRoutes from './routes/auth.js';
 import searchRoutes from './routes/search.js';
 import showRoutes from './routes/shows.js';
 import jobRoutes from './routes/jobs.js';
@@ -19,9 +20,36 @@ const recovered = recoverInterruptedJobs();
 if (recovered > 0) {
     console.log(`Marked ${recovered} interrupted job(s) as failed after restart.`);
 }
+deleteExpiredSessions();
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+
+/** Hand-rolled — the app has no other use for cookies, so a dependency isn't worth it. */
+function parseCookies(header = '') {
+    const cookies = {};
+    for (const part of header.split(';')) {
+        const i = part.indexOf('=');
+        if (i === -1) continue;
+        const key = part.slice(0, i).trim();
+        if (key) cookies[key] = decodeURIComponent(part.slice(i + 1).trim());
+    }
+    return cookies;
+}
+
+app.use((req, _res, next) => {
+    const token = parseCookies(req.headers.cookie).sid;
+    const session = token ? getSession(token) : null;
+    req.session = session && session.expires_at > new Date().toISOString() ? session : null;
+    next();
+});
+
+function requireAuth(req, res, next) {
+    if (!req.session) return res.status(401).json({ error: 'Not authenticated' });
+    next();
+}
+
+app.use('/api', authRoutes);
 
 app.get('/api/status', (_req, res) => {
     res.json({
@@ -39,9 +67,9 @@ app.get('/api/status', (_req, res) => {
     });
 });
 
-app.use('/api', searchRoutes);
-app.use('/api', showRoutes);
-app.use('/api', jobRoutes);
+app.use('/api', requireAuth, searchRoutes);
+app.use('/api', requireAuth, showRoutes);
+app.use('/api', requireAuth, jobRoutes);
 
 app.use(express.static(paths.public));
 

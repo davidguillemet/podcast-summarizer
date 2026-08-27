@@ -13,6 +13,12 @@ async function api(path, options) {
         headers: { 'Content-Type': 'application/json' },
         ...options
     });
+    // A session that expired mid-use looks like any other 401 — send the whole app
+    // back through boot() to show the login screen, rather than a confusing error banner.
+    if (res.status === 401 && path !== '/login' && path !== '/session') {
+        location.reload();
+        return new Promise(() => {});
+    }
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
     return body;
@@ -1016,8 +1022,50 @@ function router() {
 
 window.addEventListener('hashchange', router);
 
+/** The login screen, shown instead of the app until /api/session confirms a valid cookie. */
+function renderLogin() {
+    document.querySelector('.topbar nav').style.display = 'none';
+    app.innerHTML = `
+        <div class="login-wrap">
+            <h1>Sign in</h1>
+            <form id="login-form">
+                <input id="login-username" placeholder="Username" autocomplete="username" autofocus />
+                <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
+                <button class="primary" type="submit">Sign in</button>
+                <div id="login-error"></div>
+            </form>
+        </div>
+    `;
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('login-username').value.trim();
+        const password = document.getElementById('login-password').value;
+        const errorEl = document.getElementById('login-error');
+        errorEl.innerHTML = '';
+        try {
+            await api('/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+            boot();
+        } catch (err) {
+            errorEl.innerHTML = `<div class="notice error" style="margin-top:12px">${esc(err.message)}</div>`;
+        }
+    });
+}
+
+document.getElementById('logout-link').addEventListener('click', async (e) => {
+    e.preventDefault();
+    await api('/logout', { method: 'POST' }).catch(() => {});
+    location.reload();
+});
+
 /** Load status before the first render so views know which backends exist. */
 async function boot() {
+    const auth = await api('/session').catch(() => ({ authenticated: false }));
+    if (!auth.authenticated) {
+        renderLogin();
+        return;
+    }
+    document.querySelector('.topbar nav').style.display = '';
+
     try {
         session.status = await api('/status');
         const s = session.status;

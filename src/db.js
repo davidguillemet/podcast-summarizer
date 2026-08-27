@@ -67,9 +67,25 @@ CREATE TABLE IF NOT EXISTS summaries (
     created_at    TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY,
+    username      TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    password_salt TEXT NOT NULL,
+    created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token      TEXT PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_episodes_show ON episodes(show_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_episode  ON jobs(episode_id);
 CREATE INDEX IF NOT EXISTS idx_summaries_ep  ON summaries(episode_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 `);
 
 /**
@@ -329,5 +345,56 @@ const selectLibrary = db.prepare(`
      ORDER BY created_at DESC
 `);
 export const listLibrary = () => selectLibrary.all();
+
+/* -------------------------------------------------------------- accounts */
+
+const insertUser = db.prepare(`
+    INSERT INTO users (username, password_hash, password_salt, created_at)
+    VALUES (@username, @password_hash, @password_salt, @created_at)
+    RETURNING *
+`);
+export function createUser(username, passwordHash, passwordSalt) {
+    return insertUser.get({
+        username,
+        password_hash: passwordHash,
+        password_salt: passwordSalt,
+        created_at: now()
+    });
+}
+
+const selectUserByUsername = db.prepare('SELECT * FROM users WHERE username = ?');
+export const getUserByUsername = (username) => selectUserByUsername.get(username);
+
+const selectUsers = db.prepare('SELECT id, username, created_at FROM users ORDER BY created_at');
+export const listUsers = () => selectUsers.all();
+
+const deleteUserStmt = db.prepare('DELETE FROM users WHERE username = ?');
+export const deleteUser = (username) => deleteUserStmt.run(username).changes > 0;
+
+/* -------------------------------------------------------------- sessions */
+
+const insertSession = db.prepare(`
+    INSERT INTO sessions (token, user_id, created_at, expires_at)
+    VALUES (@token, @user_id, @created_at, @expires_at)
+`);
+export function createSession(token, userId, expiresAt) {
+    insertSession.run({ token, user_id: userId, created_at: now(), expires_at: expiresAt });
+}
+
+/** Joins the owning user in, so callers get the username for free. */
+const selectSession = db.prepare(`
+    SELECT s.token, s.expires_at, u.id AS user_id, u.username
+      FROM sessions s
+      JOIN users u ON u.id = s.user_id
+     WHERE s.token = ?
+`);
+export const getSession = (token) => selectSession.get(token);
+
+const deleteSessionStmt = db.prepare('DELETE FROM sessions WHERE token = ?');
+export const deleteSession = (token) => deleteSessionStmt.run(token).changes > 0;
+
+/** Run at boot, same spirit as recoverInterruptedJobs — sweep out what's no longer valid. */
+const deleteExpiredStmt = db.prepare('DELETE FROM sessions WHERE expires_at < ?');
+export const deleteExpiredSessions = () => deleteExpiredStmt.run(now()).changes;
 
 export default db;

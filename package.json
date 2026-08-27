@@ -9,7 +9,8 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "users": "node scripts/manage-users.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",

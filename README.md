@@ -106,9 +106,31 @@ curl -fL -o data/models/Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf \
 | `LLAMA_CONTEXT` | no | Default `32768`. |
 | `LLAMA_IDLE_MINUTES` | no | Unload the 13 GB model after N idle minutes. `0` keeps it resident. |
 | `ITUNES_COUNTRY` | no | Search storefront. Default `fr`. |
+| `SESSION_TTL_DAYS` | no | How long a login lasts. Default `30`. |
+| `COOKIE_SECURE` | no | Set to `true` once a reverse proxy in front of the app terminates HTTPS — see Authentication below. |
 
 You can also pick a backend per run from the UI, or per request:
 `POST /api/jobs {"episodeId": 42, "backend": "local"}`.
+
+## Authentication
+
+Every `/api/*` route except `/api/status`, `/api/login`, `/api/logout` and `/api/session`
+requires a logged-in session — there's no public signup, since this is meant for you and
+people you personally invite, not the open internet.
+
+Create accounts from the command line:
+
+```bash
+npm run users -- add alice      # prompts for a password
+npm run users -- list
+npm run users -- remove alice
+```
+
+With **zero users**, nobody — including you — can log in; create at least one before relying
+on this. Sessions are opaque random tokens stored in SQLite (not JWTs, nothing to sign), so
+they survive a server restart, and `COOKIE_SECURE=false` (the default) is what lets the login
+cookie work over plain HTTP on a LAN or through a private network like Tailscale — flip it to
+`true` only once you actually have TLS in front of the app, or the cookie won't be sent at all.
 
 ## How it works
 
@@ -148,8 +170,11 @@ src/
   config.js            .env loading, paths, validation
   db.js                SQLite schema, additive migrations, queries
   queue.js             serial job worker
-  routes/              search · shows · jobs (incl. SSE)
+  routes/
+    auth.js            login · logout · session
+    search.js · shows.js · jobs.js (incl. SSE)
   services/
+    auth.js            password hashing, session tokens
     itunes.js          iTunes Search API (no auth)
     podcastindex.js    Podcast Index (SHA-1 HMAC auth)
     feed.js            RSS fallback
@@ -163,6 +188,8 @@ src/
     summarize-local.js llama.cpp backend, map-reduce for long transcripts
     llamaServer.js     llama-server lifecycle, tokenizer, chat
     pipeline.js        stage machine + progress events
+scripts/
+  manage-users.js      CLI: add/list/remove logins (npm run users -- ...)
 public/                vanilla frontend, no build step
 vendor/llama.cpp       built locally, gitignored
 data/                  SQLite db, audio cache, models (gitignored)
@@ -172,8 +199,11 @@ data/                  SQLite db, audio cache, models (gitignored)
 
 | Method | Path | |
 |---|---|---|
+| POST | `/api/login` | `{username, password}` → sets the session cookie |
+| POST | `/api/logout` | clears the session |
+| GET | `/api/session` | `{authenticated, username}` — always 200 |
 | GET | `/api/status` | config + which backends are usable |
-| GET | `/api/search?q=` | merged show search |
+| GET | `/api/search?q=` | merged show search — requires login |
 | POST | `/api/shows` | persist a search result, return episodes |
 | GET | `/api/shows/:id/episodes` | cached episodes (`?refresh=1` to refetch) |
 | POST | `/api/jobs` | `{episodeId, backend?}` → start or rejoin a job |

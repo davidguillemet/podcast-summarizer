@@ -97,6 +97,17 @@ over lowering the chunk threshold. ~250 tokens per minute of speech, so 32k cove
 **DB migrations are additive only.** `CREATE TABLE IF NOT EXISTS` never alters an existing table
 — use the `ensureColumn()` helper in `db.js` for new columns.
 
+**Login is invite-only, and zero users means zero access — including yours.** There's no
+signup route by design; accounts exist only via `npm run users -- add <name>`
+(`scripts/manage-users.js`). Sessions are opaque tokens in the `sessions` table, not JWTs, so
+they need no signing secret and survive a server restart — a stale/expired one is swept at boot
+by `deleteExpiredSessions()`, the same pattern as `recoverInterruptedJobs()`. `/api/status`,
+`/api/login`, `/api/logout` and `/api/session` are the only routes mounted before the
+`requireAuth` middleware in `server.js`; anything else new under `/api` inherits the gate
+automatically as long as it's mounted after that line — don't reorder it. `COOKIE_SECURE`
+defaults to off on purpose, because the session cookie must work over plain HTTP on a LAN or
+through Tailscale; flip it on only once TLS actually terminates somewhere in front of the app.
+
 ## Conventions
 
 - ESM everywhere (`"type": "module"`), Node ≥ 22. Use `process.loadEnvFile()`, not `dotenv`.

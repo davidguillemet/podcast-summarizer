@@ -355,3 +355,21 @@ ul.points li { margin-bottom: 7px; }
     text-transform: uppercase;
     letter-spacing: 0.03em;
 }
+
+/* ----------------------------------------------------------------- login */
+
+.login-wrap { max-width: 340px; margin: 90px auto 0; }
+.login-wrap h1 { text-align: center; margin-bottom: 24px; }
+.login-wrap input {
+    display: block;
+    width: 100%;
+    font: inherit;
+    padding: 11px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    margin-bottom: 12px;
+}
+.login-wrap input:focus { outline: none; border-color: var(--accent); }
+.login-wrap button { width: 100%; }

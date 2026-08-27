@@ -38,6 +38,10 @@ export const config = {
         key: process.env.PODCASTINDEX_KEY || '',
         secret: process.env.PODCASTINDEX_SECRET || ''
     },
+    // How long a login stays valid, and whether the session cookie requires HTTPS —
+    // turn the latter on once a reverse proxy in front of this app terminates TLS.
+    sessionTtlDays: Number(process.env.SESSION_TTL_DAYS) || 30,
+    cookieSecure: process.env.COOKIE_SECURE === 'true',
     // 'claude' (API, best quality), 'mistral' (API, hosted Mistral Large) or
     // 'local' (Mistral Small via llama.cpp, free/offline)
     summarizer: (process.env.SUMMARIZER || 'claude').toLowerCase(),
