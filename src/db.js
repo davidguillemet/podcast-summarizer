@@ -101,7 +101,15 @@ function ensureColumn(table, column, definition) {
 ensureColumn('summaries', 'backend', 'TEXT');
 ensureColumn('jobs', 'backend', 'TEXT');
 ensureColumn('jobs', 'note', 'TEXT'); // human-readable sub-status, e.g. "Reading segment 2 of 4"
+ensureColumn('jobs', 'user_id', 'INTEGER REFERENCES users(id)');
 ensureColumn('shows', 'favorite', 'INTEGER NOT NULL DEFAULT 0');
+// AES-256-GCM ciphertext (iv:tag:data, all hex) — see services/auth.js encryptSecret/decryptSecret.
+ensureColumn('users', 'claude_api_key_enc', 'TEXT');
+ensureColumn('users', 'mistral_api_key_enc', 'TEXT');
+// 'free' (must supply their own Claude/Mistral key) or 'premium' (may fall back to the
+// server's shared key). No billing exists yet — everyone starts, and stays, 'free' until
+// an admin runs `npm run users -- set-plan <name> premium` by hand.
+ensureColumn('users', 'plan', "TEXT NOT NULL DEFAULT 'free'");
 
 const now = () => new Date().toISOString();
 
@@ -215,13 +223,13 @@ export const getEpisode = (id) => selectEpisode.get(id);
 /* ------------------------------------------------------------------- jobs */
 
 const insertJob = db.prepare(`
-    INSERT INTO jobs (episode_id, status, stage, progress, backend, created_at, updated_at)
-    VALUES (?, 'queued', 'queued', 0, ?, ?, ?)
+    INSERT INTO jobs (episode_id, status, stage, progress, backend, user_id, created_at, updated_at)
+    VALUES (?, 'queued', 'queued', 0, ?, ?, ?, ?)
     RETURNING *
 `);
-export function createJob(episodeId, backend = null) {
+export function createJob(episodeId, backend = null, userId = null) {
     const ts = now();
-    return insertJob.get(episodeId, backend, ts, ts);
+    return insertJob.get(episodeId, backend, userId, ts, ts);
 }
 
 const selectJob = db.prepare('SELECT * FROM jobs WHERE id = ?');
@@ -365,11 +373,42 @@ export function createUser(username, passwordHash, passwordSalt) {
 const selectUserByUsername = db.prepare('SELECT * FROM users WHERE username = ?');
 export const getUserByUsername = (username) => selectUserByUsername.get(username);
 
-const selectUsers = db.prepare('SELECT id, username, created_at FROM users ORDER BY created_at');
+const selectUserById = db.prepare('SELECT * FROM users WHERE id = ?');
+export const getUserById = (id) => (id ? selectUserById.get(id) : undefined);
+
+const selectUsers = db.prepare('SELECT id, username, plan, created_at FROM users ORDER BY created_at');
 export const listUsers = () => selectUsers.all();
 
+const orphanJobsStmt = db.prepare(
+    'UPDATE jobs SET user_id = NULL WHERE user_id = (SELECT id FROM users WHERE username = ?)'
+);
 const deleteUserStmt = db.prepare('DELETE FROM users WHERE username = ?');
-export const deleteUser = (username) => deleteUserStmt.run(username).changes > 0;
+
+/**
+ * `jobs.user_id` has no ON DELETE action (SQLite can't add one to an existing column
+ * without rebuilding the table, which conflicts with additive-only migrations), so a user
+ * who ever ran a job would otherwise be undeletable — orphan their old jobs first.
+ */
+export const deleteUser = db.transaction((username) => {
+    orphanJobsStmt.run(username);
+    return deleteUserStmt.run(username).changes > 0;
+});
+
+const KEY_COLUMN = { claude: 'claude_api_key_enc', mistral: 'mistral_api_key_enc' };
+const setClaudeKeyStmt = db.prepare('UPDATE users SET claude_api_key_enc = ? WHERE id = ?');
+const setMistralKeyStmt = db.prepare('UPDATE users SET mistral_api_key_enc = ? WHERE id = ?');
+
+/** `encrypted` is the ciphertext to store, or null to clear a previously saved key. */
+export function setUserApiKey(userId, provider, encrypted) {
+    if (!(provider in KEY_COLUMN)) throw new Error(`Unknown key provider "${provider}"`);
+    (provider === 'claude' ? setClaudeKeyStmt : setMistralKeyStmt).run(encrypted, userId);
+}
+
+const setPlanStmt = db.prepare('UPDATE users SET plan = ? WHERE username = ?');
+export function setUserPlan(username, plan) {
+    if (plan !== 'free' && plan !== 'premium') throw new Error(`Unknown plan "${plan}"`);
+    return setPlanStmt.run(plan, username).changes > 0;
+}
 
 /* -------------------------------------------------------------- sessions */
 

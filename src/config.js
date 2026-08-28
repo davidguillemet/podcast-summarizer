@@ -42,6 +42,9 @@ export const config = {
     // turn the latter on once a reverse proxy in front of this app terminates TLS.
     sessionTtlDays: Number(process.env.SESSION_TTL_DAYS) || 30,
     cookieSecure: process.env.COOKIE_SECURE === 'true',
+    // Encrypts each user's own Claude/Mistral key at rest — 32 random bytes as hex.
+    // Generate one with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+    encryptionKey: process.env.ENCRYPTION_KEY || '',
     // 'claude' (API, best quality), 'mistral' (API, hosted Mistral Large) or
     // 'local' (Mistral Small via llama.cpp, free/offline)
     summarizer: (process.env.SUMMARIZER || 'claude').toLowerCase(),
@@ -92,6 +95,15 @@ export function assertConfig() {
     // The API keys only matter for the backend actually selected; the local one needs no credentials.
     if (config.summarizer === 'claude') checkApiKey(problems, 'ANTHROPIC_API_KEY', config.anthropicApiKey);
     if (config.summarizer === 'mistral') checkApiKey(problems, 'MISTRAL_API_KEY', config.mistral.apiKey);
+
+    // Required unconditionally — a user could submit their own key at any time, and an
+    // unencryptable secret must never be silently stored (or silently not stored).
+    if (!/^[0-9a-f]{64}$/i.test(config.encryptionKey)) {
+        problems.push(
+            'ENCRYPTION_KEY is missing or not 32 bytes of hex — generate one with: ' +
+                `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+        );
+    }
 
     if (problems.length > 0) {
         throw new Error(`Configuration error:\n  - ${problems.join('\n  - ')}`);

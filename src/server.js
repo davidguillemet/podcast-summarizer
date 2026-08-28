@@ -2,8 +2,9 @@ import express from 'express';
 import fs from 'node:fs';
 import { config, paths, hasPodcastIndex, assertConfig } from './config.js';
 import { binaryPath, modelPath } from './services/llamaServer.js';
-import { recoverInterruptedJobs, getSession, deleteExpiredSessions } from './db.js';
+import { recoverInterruptedJobs, getSession, deleteExpiredSessions, getUserById } from './db.js';
 import authRoutes from './routes/auth.js';
+import accountRoutes from './routes/account.js';
 import searchRoutes from './routes/search.js';
 import showRoutes from './routes/shows.js';
 import jobRoutes from './routes/jobs.js';
@@ -51,7 +52,14 @@ function requireAuth(req, res, next) {
 
 app.use('/api', authRoutes);
 
-app.get('/api/status', (_req, res) => {
+app.get('/api/status', (req, res) => {
+    // A user's own key always makes a backend usable; the server's shared key only counts
+    // for a 'premium' user — a free user must never be offered a choice that resolveApiKey()
+    // (services/pipeline.js) would then reject, so this mirrors that function's rule exactly.
+    const user = req.session ? getUserById(req.session.user_id) : null;
+    const serverHasClaudeKey = Boolean(config.anthropicApiKey) && !config.anthropicApiKey.endsWith('...');
+    const serverHasMistralKey = Boolean(config.mistral.apiKey) && !config.mistral.apiKey.endsWith('...');
+    const isPremium = user?.plan === 'premium';
     res.json({
         ok: true,
         podcastIndexEnabled: hasPodcastIndex(),
@@ -59,14 +67,15 @@ app.get('/api/status', (_req, res) => {
         itunesCountry: config.itunesCountry,
         summarizer: config.summarizer,
         backends: {
-            claude: Boolean(config.anthropicApiKey) && !config.anthropicApiKey.endsWith('...'),
-            mistral: Boolean(config.mistral.apiKey) && !config.mistral.apiKey.endsWith('...'),
+            claude: Boolean(user?.claude_api_key_enc) || (isPremium && serverHasClaudeKey),
+            mistral: Boolean(user?.mistral_api_key_enc) || (isPremium && serverHasMistralKey),
             local: fs.existsSync(binaryPath()) && fs.existsSync(modelPath())
         },
         localModel: config.local.modelFile.replace(/\.gguf$/i, '')
     });
 });
 
+app.use('/api', requireAuth, accountRoutes);
 app.use('/api', requireAuth, searchRoutes);
 app.use('/api', requireAuth, showRoutes);
 app.use('/api', requireAuth, jobRoutes);

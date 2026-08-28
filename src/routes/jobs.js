@@ -13,8 +13,9 @@ import {
     createJob
 } from '../db.js';
 import { enqueue, position, queueState } from '../queue.js';
-import { jobEvents } from '../services/pipeline.js';
+import { jobEvents, resolveApiKey } from '../services/pipeline.js';
 import { audioPathFor, removeIfExists } from '../services/audio.js';
+import { config } from '../config.js';
 
 const router = Router();
 
@@ -31,11 +32,19 @@ router.post('/jobs', (req, res) => {
         return res.status(400).json({ error: 'backend must be "claude", "mistral" or "local"' });
     }
 
+    // Fail before transcribing, not after — a doomed job would otherwise burn minutes of
+    // whisper time only to hit the same check again at the summarize step.
+    try {
+        resolveApiKey(req.session.user_id, backend || config.summarizer);
+    } catch (err) {
+        return res.status(403).json({ error: err.message });
+    }
+
     // Don't queue a second run for an episode already in flight.
     const active = getActiveJobForEpisode(episodeId);
     if (active) return res.json({ job: withQueue(active), reused: true });
 
-    const job = createJob(episodeId, backend);
+    const job = createJob(episodeId, backend, req.session.user_id);
     enqueue(job.id);
     res.status(201).json({ job: withQueue(getJob(job.id)), reused: false });
 });

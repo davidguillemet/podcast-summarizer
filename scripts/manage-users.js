@@ -1,16 +1,20 @@
 import readline from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
-import { createUser, getUserByUsername, listUsers, deleteUser } from '../src/db.js';
+import { createUser, getUserByUsername, listUsers, deleteUser, setUserPlan } from '../src/db.js';
 import { hashPassword } from '../src/services/auth.js';
 
 function usage() {
     console.log(`Usage:
-  node scripts/manage-users.js add <username>      Create a user (prompts for password)
-  node scripts/manage-users.js list                List users
-  node scripts/manage-users.js remove <username>   Delete a user`);
+  node scripts/manage-users.js add <username>                Create a user (prompts for password)
+  node scripts/manage-users.js list                           List users, with their plan
+  node scripts/manage-users.js remove <username>              Delete a user
+  node scripts/manage-users.js set-plan <username> <free|premium>
+                                                                Only 'premium' may fall back to
+                                                                the server's shared API key; free
+                                                                users must supply their own.`);
 }
 
-const [, , cmd, username] = process.argv;
+const [, , cmd, username, arg] = process.argv;
 
 if (cmd === 'add') {
     if (!username) {
@@ -37,13 +41,29 @@ if (cmd === 'add') {
 } else if (cmd === 'list') {
     const users = listUsers();
     if (users.length === 0) console.log('No users yet — the app is unreachable until you add one.');
-    for (const u of users) console.log(`${u.username}  (created ${u.created_at})`);
+    for (const u of users) console.log(`${u.username}  [${u.plan}]  (created ${u.created_at})`);
 } else if (cmd === 'remove') {
     if (!username) {
         usage();
         process.exit(1);
     }
     console.log(deleteUser(username) ? `Removed "${username}".` : `No such user "${username}".`);
+} else if (cmd === 'set-plan') {
+    if (!username || !arg) {
+        usage();
+        process.exit(1);
+    }
+    if (!getUserByUsername(username)) {
+        console.error(`No such user "${username}".`);
+        process.exit(1);
+    }
+    try {
+        setUserPlan(username, arg);
+        console.log(`"${username}" is now on the ${arg} plan.`);
+    } catch (err) {
+        console.error(err.message);
+        process.exit(1);
+    }
 } else {
     usage();
     process.exit(cmd ? 1 : 0);

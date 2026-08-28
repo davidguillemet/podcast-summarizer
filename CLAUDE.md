@@ -108,6 +108,34 @@ automatically as long as it's mounted after that line — don't reorder it. `COO
 defaults to off on purpose, because the session cookie must work over plain HTTP on a LAN or
 through Tailscale; flip it on only once TLS actually terminates somewhere in front of the app.
 
+**Per-user API keys are encrypted at rest, not zero-knowledge.** `ENCRYPTION_KEY` (required at
+boot, unlike the provider keys) protects `users.claude_api_key_enc` /
+`mistral_api_key_enc` from someone who gets the SQLite file — it does not and cannot hide a
+user's key from this server's own process, since `pipeline.js`'s `resolveApiKey()` has to
+decrypt it to make the call on their behalf. Don't describe this to users as "even the admin
+can't see your key" — that's only true if the API call moves client-side, which it doesn't.
+`jobs.user_id` is how a job remembers whose key to use once it actually runs in the queue,
+since jobs are async and the request that created them has long since finished.
+
+**Free plan can't use the shared key — enforced twice, on purpose, and status has to agree.**
+`users.plan` is `'free'` by default (no billing exists; `set-plan` in `manage-users.js` is the
+only way to change it). `resolveApiKey()` in `pipeline.js` throws for a free user with no key
+of their own, rather than silently falling back to `config.anthropicApiKey`/`config.mistral.
+apiKey` — that fallback is exactly what the free/premium split exists to prevent. It's called
+from `routes/jobs.js` at job creation (so a doomed job fails before whisper ever runs, not
+after) *and* again from `pipeline.js` at the actual model call, as a safety net for a plan or
+key change that happens in between. `/api/status`'s `backends` flags apply the identical rule
+(own key always counts; the server's key only counts for premium) so the UI's backend picker
+never offers a choice `resolveApiKey()` would then reject — if you change one, change the
+other, or the picker and the enforcement will disagree. `local` has no key concept and is
+never plan-restricted, at any tier.
+
+**`jobs.user_id` has no `ON DELETE` action, and SQLite can't add one after the fact.** Deleting
+a user who has ever run a job hits a foreign-key error unless their jobs are re-pointed to
+`NULL` first — `deleteUser()` in `db.js` does this in a transaction before the actual delete.
+Don't "simplify" that back to a bare `DELETE FROM users`; it breaks the moment the target
+account has any job history, which — via `set-plan`/testing/normal use — is most of them.
+
 ## Conventions
 
 - ESM everywhere (`"type": "module"`), Node ≥ 22. Use `process.loadEnvFile()`, not `dotenv`.

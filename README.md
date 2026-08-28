@@ -108,6 +108,7 @@ curl -fL -o data/models/Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf \
 | `ITUNES_COUNTRY` | no | Search storefront. Default `fr`. |
 | `SESSION_TTL_DAYS` | no | How long a login lasts. Default `30`. |
 | `COOKIE_SECURE` | no | Set to `true` once a reverse proxy in front of the app terminates HTTPS — see Authentication below. |
+| `ENCRYPTION_KEY` | **yes** | 32 bytes of hex, encrypts each user's own Claude/Mistral key at rest. Boot fails without it. Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
 
 You can also pick a backend per run from the UI, or per request:
 `POST /api/jobs {"episodeId": 42, "backend": "local"}`.
@@ -121,9 +122,10 @@ people you personally invite, not the open internet.
 Create accounts from the command line:
 
 ```bash
-npm run users -- add alice      # prompts for a password
-npm run users -- list
+npm run users -- add alice              # prompts for a password
+npm run users -- list                   # shows each user's plan too
 npm run users -- remove alice
+npm run users -- set-plan alice premium # see "Per-user API keys" below
 ```
 
 With **zero users**, nobody — including you — can log in; create at least one before relying
@@ -131,6 +133,24 @@ on this. Sessions are opaque random tokens stored in SQLite (not JWTs, nothing t
 they survive a server restart, and `COOKIE_SECURE=false` (the default) is what lets the login
 cookie work over plain HTTP on a LAN or through a private network like Tailscale — flip it to
 `true` only once you actually have TLS in front of the app, or the cookie won't be sent at all.
+
+**Per-user API keys, and the free/premium split.** Every account is `free` by default — there
+is no billing system yet, so this is set by hand with `set-plan`. A `free` user must set their
+own Claude/Mistral key from `#/account` to use that backend at all; the server's shared `.env`
+key is off-limits to them. A `premium` user may still set their own key, but if they haven't,
+they fall back to the server's key. This is enforced in `resolveApiKey()` (`pipeline.js`) —
+checked once at job creation (`POST /api/jobs`, so a doomed job never burns minutes of whisper
+time before failing) and again right before the model call, as a safety net. `/api/status`'s
+backend flags mirror the same rule, so the picker never offers a backend that would just be
+rejected. The `local` backend has no key concept at all and is never plan-restricted.
+
+Keys are AES-256-GCM encrypted at rest with `ENCRYPTION_KEY` and never sent back to the browser
+once saved — `GET /api/account` only reports whether one is set. That encryption protects the
+key from anyone who gets hold of the SQLite file; it does **not** protect it from this server's
+own process, which must decrypt it to make the API call on the user's behalf — that limit is
+inherent to any server-side BYOK design, not something more encryption fixes. Tell anyone using
+their own key to generate a dedicated, spend-capped key from their own provider dashboard
+rather than handing over their main one.
 
 ## How it works
 
@@ -172,9 +192,10 @@ src/
   queue.js             serial job worker
   routes/
     auth.js            login · logout · session
+    account.js         per-user Claude/Mistral key storage
     search.js · shows.js · jobs.js (incl. SSE)
   services/
-    auth.js            password hashing, session tokens
+    auth.js            password hashing, session tokens, key encryption
     itunes.js          iTunes Search API (no auth)
     podcastindex.js    Podcast Index (SHA-1 HMAC auth)
     feed.js            RSS fallback
@@ -202,11 +223,13 @@ data/                  SQLite db, audio cache, models (gitignored)
 | POST | `/api/login` | `{username, password}` → sets the session cookie |
 | POST | `/api/logout` | clears the session |
 | GET | `/api/session` | `{authenticated, username}` — always 200 |
-| GET | `/api/status` | config + which backends are usable |
+| GET | `/api/status` | config + which backends are usable (includes the caller's own keys) |
+| GET | `/api/account` | `{username, plan, claudeKeySet, mistralKeySet}` — requires login |
+| PUT | `/api/account/keys` | `{claudeApiKey?, mistralApiKey?}` — set/clear your own keys; `""` clears |
 | GET | `/api/search?q=` | merged show search — requires login |
 | POST | `/api/shows` | persist a search result, return episodes |
 | GET | `/api/shows/:id/episodes` | cached episodes (`?refresh=1` to refetch) |
-| POST | `/api/jobs` | `{episodeId, backend?}` → start or rejoin a job |
+| POST | `/api/jobs` | `{episodeId, backend?}` → start or rejoin a job; `403` if the backend needs a key this user can't use |
 | GET | `/api/jobs/:id` | status snapshot |
 | GET | `/api/jobs/:id/events` | SSE progress stream |
 | GET | `/api/episodes/:id/summary` | latest summary |

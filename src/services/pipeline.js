@@ -5,8 +5,10 @@ import {
     getTranscript,
     saveTranscript,
     saveSummary,
-    updateJob
+    updateJob,
+    getUserById
 } from '../db.js';
+import { decryptSecret } from './auth.js';
 import { audioPathFor, downloadAudio, convertToWav, probeDuration, removeIfExists } from './audio.js';
 import {
     assertWhisperReady,
@@ -44,6 +46,33 @@ function makeReporter(jobId) {
         const job = updateJob(jobId, { status: stage, stage, progress });
         jobEvents.emit('update', job);
     };
+}
+
+const KEY_COLUMN = { claude: 'claude_api_key_enc', mistral: 'mistral_api_key_enc' };
+const BACKEND_LABEL = { claude: 'Claude', mistral: 'Mistral' };
+
+/**
+ * The key to use for this backend: the job owner's own if they've set one (any plan), or
+ * null — meaning "fall back to the server's .env key" — but only for a 'premium' user.
+ * No billing exists yet, so free is every user's plan until an admin changes it by hand;
+ * a free user with no key of their own is a hard stop, not a silent fallback to the shared
+ * key, which is the entire point of the plan split. 'local' has no key concept at all, so
+ * it's never restricted here. Called both as a pre-flight check in routes/jobs.js (so a
+ * doomed job never queues) and again here at run time as a safety net.
+ */
+export function resolveApiKey(userId, backendName) {
+    const column = KEY_COLUMN[backendName];
+    if (!column) return null;
+
+    const user = getUserById(userId);
+    const ownKey = user?.[column] ? decryptSecret(user[column]) : null;
+    if (ownKey) return ownKey;
+    if (user?.plan === 'premium') return null;
+
+    throw new Error(
+        `Your account is on the free plan and has no ${BACKEND_LABEL[backendName]} API key set. ` +
+            'Add one from Account, or ask the admin to upgrade your plan.'
+    );
 }
 
 function fail(jobId, error) {
@@ -142,6 +171,9 @@ export async function runJob(jobId) {
         const forModel = buildTimestampedTranscript(transcript.srt, transcript.text);
         const { data, refusal, model, usage, backend } = await summarizeTranscript(forModel, {
             backend: backendName,
+            // The job owner's own key, if they've saved one for this backend — falls back to
+            // the server's .env key inside the backend module when this is null.
+            apiKey: resolveApiKey(job.user_id, backendName),
             episodeTitle: episode.title,
             showTitle: show?.title,
             // The local backend has long sub-steps (model load, per-segment notes);

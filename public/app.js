@@ -895,6 +895,108 @@ async function viewShows() {
     render();
 }
 
+/** Optional per-user Claude/Mistral keys — set your own to use your own quota instead of the server's. */
+async function viewAccount() {
+    app.innerHTML = '<div class="loading">Loading account…</div>';
+    let data;
+    try {
+        data = await api('/account');
+    } catch (err) {
+        app.innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
+        return;
+    }
+
+    const isPremium = data.plan === 'premium';
+
+    const keyRow = (provider, label, placeholder) => {
+        const isSet = data[`${provider}KeySet`];
+        const badge = isSet ? 'key set' : isPremium ? 'using server key' : 'required — none set';
+        return `
+        <div class="key-row">
+            <div class="spread" style="align-items:center">
+                <strong>${label}</strong>
+                <span class="badge ${isSet || isPremium ? 'done' : 'warn'}">${badge}</span>
+            </div>
+            <div class="row" style="margin-top:8px">
+                <input type="password" id="${provider}-key-input" placeholder="${esc(placeholder)}" autocomplete="off" />
+                <button class="small primary" data-action="save-key" data-provider="${provider}">Save</button>
+                ${isSet ? `<button class="small danger" data-action="clear-key" data-provider="${provider}">Clear</button>` : ''}
+            </div>
+        </div>`;
+    };
+
+    const render = () => {
+        app.innerHTML = `
+            <h1>Account</h1>
+            <p class="muted small">
+                Signed in as <strong>${esc(data.username)}</strong> ·
+                <span class="badge ${isPremium ? 'done' : 'neutral'}">${isPremium ? 'Premium' : 'Free'} plan</span>
+            </p>
+
+            <h2>Your API keys</h2>
+            <p class="muted small">
+                ${
+                    isPremium
+                        ? `Set your own key to use your own Claude/Mistral quota instead of the server's
+                           shared one. Leave blank to keep using the server's key.`
+                        : `The free plan requires your own key for Claude and Mistral — the server's shared
+                           key isn't available on this plan. Local summarization has no such requirement.`
+                }
+                Your key is encrypted at rest and never shown again once saved.
+            </p>
+
+            ${keyRow('claude', 'Claude', 'sk-ant-...')}
+            ${keyRow('mistral', 'Mistral', 'sk-mis-...')}
+        `;
+
+        document.querySelectorAll('[data-action="save-key"]').forEach((btn) =>
+            btn.addEventListener('click', async () => {
+                const provider = btn.dataset.provider;
+                const value = document.getElementById(`${provider}-key-input`).value.trim();
+                if (!value) return;
+                btn.disabled = true;
+                btn.textContent = 'Saving…';
+                try {
+                    await api('/account/keys', {
+                        method: 'PUT',
+                        body: JSON.stringify({ [`${provider}ApiKey`]: value })
+                    });
+                    data[`${provider}KeySet`] = true;
+                    session.status = await api('/status').catch(() => session.status);
+                    render();
+                } catch (err) {
+                    app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+                    btn.disabled = false;
+                    btn.textContent = 'Save';
+                }
+            })
+        );
+
+        document.querySelectorAll('[data-action="clear-key"]').forEach((btn) =>
+            btn.addEventListener('click', async () => {
+                const provider = btn.dataset.provider;
+                const label = provider === 'claude' ? 'Claude' : 'Mistral';
+                if (!confirm(`Remove your ${label} key? Jobs will fall back to the server's key, if any.`)) return;
+                btn.disabled = true;
+                try {
+                    await api('/account/keys', {
+                        method: 'PUT',
+                        body: JSON.stringify({ [`${provider}ApiKey`]: '' })
+                    });
+                    data[`${provider}KeySet`] = false;
+                    session.status = await api('/status').catch(() => session.status);
+                    render();
+                } catch (err) {
+                    app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+                    btn.disabled = false;
+                }
+            })
+        );
+    };
+
+    render();
+}
+
 async function viewLibrary() {
     app.innerHTML = '<div class="loading">Loading library…</div>';
     const { items } = await api('/library');
@@ -1017,6 +1119,7 @@ function router() {
     if (section === 'episode' && param) return void viewSummary(param);
     if (section === 'library') return void viewLibrary();
     if (section === 'shows') return void viewShows();
+    if (section === 'account') return void viewAccount();
     return void viewSearch();
 }
 

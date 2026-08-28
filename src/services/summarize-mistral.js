@@ -11,7 +11,7 @@ const API_URL = 'https://api.mistral.ai/v1/chat/completions';
  */
 export async function summarizeTranscript(
     transcriptText,
-    { episodeTitle, showTitle, onStatus = () => {} } = {}
+    { episodeTitle, showTitle, apiKey, onStatus = () => {} } = {}
 ) {
     onStatus('Writing the summary…');
 
@@ -19,7 +19,7 @@ export async function summarizeTranscript(
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${config.mistral.apiKey}`
+            Authorization: `Bearer ${apiKey || config.mistral.apiKey}`
         },
         body: JSON.stringify({
             model: MODEL,

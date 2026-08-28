@@ -4,20 +4,19 @@ import { SUMMARY_SCHEMA, SYSTEM_PROMPT, buildUserContent } from './summary-schem
 
 export const MODEL = 'claude-opus-5';
 
-let client = null;
-const getClient = () => (client ??= new Anthropic({ apiKey: config.anthropicApiKey }));
-
 /**
  * Summarize in a single pass. Even a three-hour episode is ~50k tokens, well
  * inside the context window, and one pass reads better than map-reduce.
  */
 export async function summarizeTranscript(
     transcriptText,
-    { episodeTitle, showTitle, onStatus = () => {} } = {}
+    { episodeTitle, showTitle, apiKey, onStatus = () => {} } = {}
 ) {
     onStatus('Writing the summary…');
 
-    const stream = getClient().beta.messages.stream({
+    // A fresh client per call, since apiKey can differ per user — cheap, just config, no connection.
+    const client = new Anthropic({ apiKey: apiKey || config.anthropicApiKey });
+    const stream = client.beta.messages.stream({
         model: MODEL,
         max_tokens: 16000,
         thinking: { type: 'adaptive' },

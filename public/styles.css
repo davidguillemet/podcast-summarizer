@@ -373,3 +373,24 @@ ul.points li { margin-bottom: 7px; }
 }
 .login-wrap input:focus { outline: none; border-color: var(--accent); }
 .login-wrap button { width: 100%; }
+
+/* --------------------------------------------------------------- account */
+
+.key-row {
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 12px;
+}
+.key-row input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    padding: 9px 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+}
+.key-row input:focus { outline: none; border-color: var(--accent); }
