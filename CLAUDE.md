@@ -136,6 +136,18 @@ a user who has ever run a job hits a foreign-key error unless their jobs are re-
 Don't "simplify" that back to a bare `DELETE FROM users`; it breaks the moment the target
 account has any job history, which — via `set-plan`/testing/normal use — is most of them.
 
+**The Docker image never builds local Mistral, and downloads the whisper model at container
+start, not build time.** `Dockerfile` compiles whisper.cpp CPU-only (no Metal — Linux/NAS
+target) but skips llama.cpp entirely; without a GPU a 24B model isn't practical, so a
+Docker deployment is Claude/Mistral-API-only by design, same as any `SUMMARIZER=claude`/
+`mistral` host. `docker-entrypoint.sh` downloads the model into the `data/` volume and
+symlinks it into `node_modules` on every start — `node_modules` comes from the image and is
+rebuilt fresh each time, so the symlink can't be created once at build time and expected to
+survive, but the model download itself is skipped once it's already on the volume. `config.js`
+loads `.env` only `if (fs.existsSync(...))`, so Compose's `env_file:` (which injects vars
+straight into `process.env`, no literal file in the container) works without any extra glue —
+don't add one.
+
 ## Conventions
 
 - ESM everywhere (`"type": "module"`), Node ≥ 22. Use `process.loadEnvFile()`, not `dotenv`.

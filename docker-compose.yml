@@ -1,0 +1,14 @@
+services:
+  podcast-summarizer:
+    build: .
+    container_name: podcast-summarizer
+    restart: unless-stopped
+    ports:
+      - "4300:4300"
+    # Real secrets stay in this file on the NAS host only — never baked into the image,
+    # never committed. See .env.example for what it needs (a fresh ENCRYPTION_KEY,
+    # SUMMARIZER=claude or mistral — not local, there's no GPU here to run it on).
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data

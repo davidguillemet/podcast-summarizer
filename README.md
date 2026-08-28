@@ -214,6 +214,8 @@ scripts/
 public/                vanilla frontend, no build step
 vendor/llama.cpp       built locally, gitignored
 data/                  SQLite db, audio cache, models (gitignored)
+Dockerfile, docker-compose.yml, docker-entrypoint.sh
+                       CPU-only NAS/Linux deployment — see "Deploying with Docker" below
 ```
 
 ## API
@@ -237,6 +239,43 @@ data/                  SQLite db, audio cache, models (gitignored)
 | GET | `/api/episodes/:id/transcript` | raw transcript text |
 | GET | `/api/library` | everything summarized so far |
 | DELETE | `/api/episodes/:id/audio` | purge cached media |
+
+## Deploying with Docker (e.g. a NAS)
+
+`Dockerfile` + `docker-compose.yml` target a headless Linux x86_64 box with no GPU — a QNAP/
+Synology NAS via Container Station/Container Manager, or any small Linux server. This is a
+CPU-only build: no Metal (that's Apple-only) and no llama.cpp/local Mistral (not practical
+without a GPU — a 24B model on a NAS CPU would be painfully slow). Set `SUMMARIZER=claude` or
+`SUMMARIZER=mistral`; `local` will just show as unavailable, the same graceful degradation as
+a missing API key.
+
+```bash
+cp .env.example .env
+# Edit .env for this deployment specifically — do not reuse your dev machine's file:
+#   - a FRESH ENCRYPTION_KEY (never reuse one from another deployment)
+#   - SUMMARIZER=claude or mistral, never local
+#   - consider a smaller WHISPER_MODEL (base/small) — CPU transcription is much
+#     slower than Metal, and this trades accuracy for speed
+
+docker compose up -d --build
+docker compose exec podcast-summarizer npm run users -- add <yourname>   # first login
+```
+
+`data/` is a bind-mounted volume (SQLite DB, audio cache, downloaded models), so it survives
+`docker compose up --build` rebuilds. The whisper model itself is downloaded once into
+`data/models/` by `docker-entrypoint.sh` on first start (idempotent — skipped if already
+present) and symlinked into `node_modules` on every start, since `node_modules` comes from the
+image and is rebuilt fresh each time, unlike the volume.
+
+This app has no authentication-free public signup by design (see Authentication above) — a
+Docker deployment doesn't change that. Exposing the container to the actual internet still
+needs its own answer (a VPN/Tailscale, or a reverse proxy with its own TLS) independent of
+Container Station's port mapping, which only controls reachability on your LAN.
+
+> I don't have Docker available in this environment to build-test this image end to end —
+> I've cross-checked every command against this README's own documented whisper.cpp build
+> steps and standard Dockerfile/Compose syntax, but treat the first `docker compose up --build`
+> on your actual NAS as the real test, and tell me what breaks.
 
 ## Troubleshooting
 
