@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { resolveShowWithEpisodes } from '../services/search.js';
-import { getShow, listEpisodes, listLibrary, listBrowsableShows, upsertShow, setFavorite } from '../db.js';
+import { getShow, listLibrary, listBrowsableShows, upsertShow, setFavorite } from '../db.js';
 
 const router = Router();
 
@@ -35,14 +35,16 @@ router.post('/shows', async (req, res) => {
     res.json(await resolveShowWithEpisodes(req.body));
 });
 
+/**
+ * Delegates entirely to resolveShowWithEpisodes rather than checking the cache itself —
+ * that function already correctly falls through to a fresh fetch when there's nothing
+ * cached, `refresh` or not. A show can reach this route with zero episodes saved (e.g.
+ * favorited straight from search, which only persists metadata) and a naive "cache unless
+ * ?refresh=1" shortcut here would serve that empty cache forever instead of ever fetching.
+ */
 router.get('/shows/:id/episodes', async (req, res) => {
     const show = getShow(Number(req.params.id));
     if (!show) return res.status(404).json({ error: 'Show not found' });
-
-    const refresh = req.query.refresh === '1';
-    if (!refresh) {
-        return res.json({ show, episodes: listEpisodes(show.id), episodeSource: 'cache' });
-    }
 
     res.json(
         await resolveShowWithEpisodes(
@@ -55,7 +57,7 @@ router.get('/shows/:id/episodes', async (req, res) => {
                 description: show.description,
                 artworkUrl: show.artwork_url
             },
-            { refresh: true }
+            { refresh: req.query.refresh === '1' }
         )
     );
 });

@@ -258,11 +258,27 @@ async function viewShow(showId) {
         </div>
         <div class="spread" style="align-items:center">
             <h2>Episodes</h2>
-            ${backendPicker()}
+            <div class="row">
+                ${backendPicker()}
+                <button class="small" id="refresh-episodes">Refresh episodes</button>
+            </div>
         </div>
         <div id="episodes"></div>
     `;
     wireBackendPicker();
+
+    document.getElementById('refresh-episodes').addEventListener('click', async (e) => {
+        e.target.disabled = true;
+        e.target.textContent = 'Refreshing…';
+        try {
+            await api(`/shows/${showId}/episodes?refresh=1`);
+            viewShow(showId);
+        } catch (err) {
+            app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+            e.target.disabled = false;
+            e.target.textContent = 'Refresh episodes';
+        }
+    });
 
     document.getElementById('fav').addEventListener('click', async (e) => {
         const nowFavorite = !show.favorite;
