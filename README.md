@@ -262,8 +262,8 @@ cp .env.example .env
 #   - consider a smaller WHISPER_MODEL (base/small) — CPU transcription is much
 #     slower than Metal, and this trades accuracy for speed
 
-docker compose up -d --build
-docker compose exec podcast-summarizer npm run users -- add <yourname>   # first login
+sudo docker compose up -d --build
+sudo docker compose exec podcast-summarizer npm run users -- add <yourname>   # first login
 ```
 
 `data/` is a bind-mounted volume (SQLite DB, audio cache, downloaded models), so it survives
@@ -277,10 +277,49 @@ Docker deployment doesn't change that. Exposing the container to the actual inte
 needs its own answer (a VPN/Tailscale, or a reverse proxy with its own TLS) independent of
 Container Station's port mapping, which only controls reachability on your LAN.
 
-> I don't have Docker available in this environment to build-test this image end to end —
-> I've cross-checked every command against this README's own documented whisper.cpp build
-> steps and standard Dockerfile/Compose syntax, but treat the first `docker compose up --build`
-> on your actual NAS as the real test, and tell me what breaks.
+### Updating
+
+Pull the latest code, then rebuild — `data/` and `.env` are both untouched either way, since
+neither is tracked by git:
+
+```bash
+cd /path/to/podcast-summarizer   # wherever you cloned it
+git pull
+sudo docker compose up -d --build
+```
+
+If git isn't installed on the NAS itself (true of stock QNAP QTS — see below), do the `pull`
+as a disposable container instead of installing anything system-wide: create a container from
+the small `alpine/git` image, mount the project folder to `/git`, restart policy **never**,
+command `-C /git pull`. Run it once — it should exit immediately with code `0` — then delete
+it. The *initial* clone works the same way, just with `clone <repo-url> /git` as the command
+instead of `pull`.
+
+### Real-world NAS deployment notes
+
+A few things that came up doing this for real on a QNAP TS-464, worth knowing ahead of time
+rather than rediscovering:
+
+- **Container Station's "select a compose file, preview it, Create" import flow stages the
+  file into a temporary directory** and doesn't carry along sibling files from the real
+  project folder. Since our compose file uses both `build: .` and `env_file: .env`, that
+  import path fails validation (`env file /tmp/.env not found`) before it ever gets to
+  building. Run `docker compose up -d --build` directly over SSH instead — it resolves
+  relative paths against the real filesystem, so both work correctly with zero file changes.
+- **`docker compose` needs `sudo`** in a stock QTS SSH session — the CLI doesn't have the
+  Docker socket access that Container Station itself uses internally as a privileged service.
+- **A stale or drifting NAS clock breaks the build** with a cryptic `apt-get` failure
+  (`E: Release file ... is not valid yet (invalid for another Nmin)`). If the build fails at
+  the `apt-get update` step, check NTP time sync is actually enabled *and working* (Control
+  Panel → General Settings → Time) before looking anywhere else — this isn't a network or
+  Dockerfile problem, it's the system clock being wrong.
+- **A missing `ANTHROPIC_API_KEY`/`MISTRAL_API_KEY` for the configured `SUMMARIZER` no longer
+  blocks boot** (see Configuration above) — but on an older copy of the code, it did, and the
+  container would crash-loop under `restart: unless-stopped`. That looks confusingly like a
+  networking problem: `docker compose ps` can catch it mid-restart and show `Up`, while
+  `curl localhost:<port>` still refuses because nothing actually stayed up long enough to
+  bind. If you see that combination, `docker compose logs` is the fastest way to the real
+  cause, not the port/network settings.
 
 ## Troubleshooting
 
