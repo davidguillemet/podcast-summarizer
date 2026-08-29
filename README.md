@@ -291,9 +291,24 @@ sudo docker compose up -d --build
 If git isn't installed on the NAS itself (true of stock QNAP QTS — see below), do the `pull`
 as a disposable container instead of installing anything system-wide: create a container from
 the small `alpine/git` image, mount the project folder to `/git`, restart policy **never**,
-command `-C /git pull`. Run it once — it should exit immediately with code `0` — then delete
-it. The *initial* clone works the same way, just with `clone <repo-url> /git` as the command
-instead of `pull`.
+command `-C /git pull`. Run it once — it should exit immediately with code `0`. The *initial*
+clone works the same way, just with `clone <repo-url> /git` as the command instead of `pull`.
+
+**Stop this container after use instead of deleting it** — Container Station keeps its full
+config (image, volume, command, env vars) while stopped, so a future update is just "Start" on
+the same container instead of recreating it from scratch. `git pull` is a harmless no-op to
+re-run when there's nothing new.
+
+Git refuses to operate on a bind-mounted directory owned by a different user than the
+container's (`fatal: detected dubious ownership in repository at '/git'`) — expect this on the
+very first run. Fix it with environment variables on the same container, rather than trying to
+chain a second command through `alpine/git`'s fixed `git` entrypoint:
+
+```
+GIT_CONFIG_COUNT=1
+GIT_CONFIG_KEY_0=safe.directory
+GIT_CONFIG_VALUE_0=*
+```
 
 ### Real-world NAS deployment notes
 
