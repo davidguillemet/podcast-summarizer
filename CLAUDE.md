@@ -69,6 +69,17 @@ project, which runs on the same machine. Don't change the default.
 Adding a key to `.env.example` does not add it to an existing `.env`, and a `sed` replacing a
 line that isn't there silently does nothing. When adding a config key, update both.
 
+### A missing default-backend key is a boot *warning*, not a crash — don't "fix" that back
+
+`assertConfig()` used to `throw` (and exit) if `SUMMARIZER=mistral`/`claude` had no matching
+API key. It's a warning now, on purpose: per-user BYOK means a deployment can run with zero
+shared keys at all. This bit a real Docker/NAS deployment hard — `restart: unless-stopped` kept
+recreating the container every ~minute, `docker compose ps` briefly showed `Up` between
+restarts, and the actual crash reason was buried in `docker compose logs`, not in anything
+port- or network-related, which is where the debugging initially (wrongly) focused. Only
+`ENCRYPTION_KEY` still hard-fails at boot — it's unconditionally required, unlike the
+per-backend keys.
+
 ## Architecture notes
 
 **Three summarizer backends, one contract.** `summary-schema.js` holds the JSON schema and

@@ -19,9 +19,11 @@ npm start                 # http://localhost:4300
 ```
 
 With `SUMMARIZER=local` (the fully offline path) nothing else is needed once the model is in
-place. With `SUMMARIZER=claude` or `SUMMARIZER=mistral` you need the matching API key
-(`ANTHROPIC_API_KEY` or `MISTRAL_API_KEY`); the server refuses to boot without it so you find
-out immediately rather than at the end of a job.
+place. With `SUMMARIZER=claude` or `SUMMARIZER=mistral`, missing the matching API key
+(`ANTHROPIC_API_KEY` or `MISTRAL_API_KEY`) only logs a warning at boot, not a hard failure —
+per-user API keys (see Authentication below) mean a deployment can run entirely on BYOK with no
+shared key at all. `ENCRYPTION_KEY` is the one setting that's always required; the server won't
+boot without it.
 
 ## Requirements
 
@@ -96,8 +98,8 @@ curl -fL -o data/models/Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf \
 | Variable | Required | Notes |
 |---|---|---|
 | `SUMMARIZER` | no | `claude` (default), `mistral` or `local`. Transcription is on-device either way. |
-| `ANTHROPIC_API_KEY` | only for `claude` | Boot fails without it, including on the `.env.example` placeholder. |
-| `MISTRAL_API_KEY` | only for `mistral` | Same boot-time check as `ANTHROPIC_API_KEY`. Get one at [console.mistral.ai](https://console.mistral.ai/api-keys). |
+| `ANTHROPIC_API_KEY` | no | Only needed if `SUMMARIZER=claude` and you want a shared/default key (see "Per-user API keys" below). Missing or still the `.env.example` placeholder just logs a boot warning, not a failure. |
+| `MISTRAL_API_KEY` | no | Same as `ANTHROPIC_API_KEY`, for `SUMMARIZER=mistral`. Get one at [console.mistral.ai](https://console.mistral.ai/api-keys). |
 | `MISTRAL_MODEL` | no | Default `mistral-large-latest`. |
 | `PODCASTINDEX_KEY` / `_SECRET` | no | Free from [podcastindex.org/api](https://podcastindex.org/api). Adds episode-level search and surfaces free publisher transcripts. Without it, iTunes only. |
 | `PORT` | no | Default `4300` — avoids the Firebase emulators (4000/5002/5003/9099/9199) and CRA (3000). |
@@ -252,8 +254,11 @@ a missing API key.
 ```bash
 cp .env.example .env
 # Edit .env for this deployment specifically — do not reuse your dev machine's file:
-#   - a FRESH ENCRYPTION_KEY (never reuse one from another deployment)
-#   - SUMMARIZER=claude or mistral, never local
+#   - a FRESH ENCRYPTION_KEY (never reuse one from another deployment) — this one's
+#     required, the app won't boot without it
+#   - SUMMARIZER=claude or mistral, never local. The matching API key is optional —
+#     boots fine without it (just a log warning) if every user brings their own via
+#     #/account; only needed here if you want a shared/default key too
 #   - consider a smaller WHISPER_MODEL (base/small) — CPU transcription is much
 #     slower than Metal, and this trades accuracy for speed
 

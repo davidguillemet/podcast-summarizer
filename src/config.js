@@ -73,28 +73,34 @@ const SUMMARIZERS = ['claude', 'mistral', 'local'];
  * A key is missing, or still the placeholder from .env.example (non-empty, so a naive
  * presence check would let it through and the run would die at the very last step instead).
  */
-function checkApiKey(problems, envVar, key) {
+function checkApiKey(warnings, envVar, key) {
     if (!key) {
-        problems.push(
-            `${envVar} is missing — copy .env.example to .env and fill it in, ` +
-                `or set SUMMARIZER to one of the other backends instead.`
-        );
+        warnings.push(`${envVar} is missing — the shared/default backend won't work until it's set.`);
     } else if (key.endsWith('...')) {
-        problems.push(`${envVar} is still the placeholder from .env.example — paste your real key.`);
+        warnings.push(`${envVar} is still the placeholder from .env.example — paste your real key.`);
     }
 }
 
-/** Fail loudly at boot rather than 90% of the way through a job. */
+/**
+ * Fail loudly at boot for anything that would break the app outright — but a missing key for
+ * the *default* backend is only a warning, not a boot-blocker. Per-user API keys mean a
+ * deployment can run entirely on BYOK with zero shared keys configured at all (see
+ * resolveApiKey() in services/pipeline.js) — that's an intended shape for a free-plan-only
+ * rollout, not a misconfiguration. resolveApiKey() still throws its own clear, user-facing
+ * error at job time for anyone who actually needed the missing shared key (the default job
+ * path, or a 'premium' user with no key of their own).
+ */
 export function assertConfig() {
     const problems = [];
+    const warnings = [];
 
     if (!SUMMARIZERS.includes(config.summarizer)) {
         problems.push(`SUMMARIZER must be one of ${SUMMARIZERS.join(', ')} (got "${config.summarizer}").`);
     }
 
     // The API keys only matter for the backend actually selected; the local one needs no credentials.
-    if (config.summarizer === 'claude') checkApiKey(problems, 'ANTHROPIC_API_KEY', config.anthropicApiKey);
-    if (config.summarizer === 'mistral') checkApiKey(problems, 'MISTRAL_API_KEY', config.mistral.apiKey);
+    if (config.summarizer === 'claude') checkApiKey(warnings, 'ANTHROPIC_API_KEY', config.anthropicApiKey);
+    if (config.summarizer === 'mistral') checkApiKey(warnings, 'MISTRAL_API_KEY', config.mistral.apiKey);
 
     // Required unconditionally — a user could submit their own key at any time, and an
     // unencryptable secret must never be silently stored (or silently not stored).
@@ -105,6 +111,9 @@ export function assertConfig() {
         );
     }
 
+    if (warnings.length > 0) {
+        console.warn(`Configuration warning:\n  - ${warnings.join('\n  - ')}`);
+    }
     if (problems.length > 0) {
         throw new Error(`Configuration error:\n  - ${problems.join('\n  - ')}`);
     }
