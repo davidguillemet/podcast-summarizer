@@ -335,6 +335,12 @@ rather than rediscovering:
   `curl localhost:<port>` still refuses because nothing actually stayed up long enough to
   bind. If you see that combination, `docker compose logs` is the fastest way to the real
   cause, not the port/network settings.
+- **`whisper-cli: error while loading shared libraries: libgomp.so.1: cannot open shared
+  object file`** the first time you actually transcribe something. The multi-stage build
+  compiles `whisper-cli` with a full `build-essential` toolchain (which pulls in OpenMP), but
+  the runtime stage only installed `curl`/`ca-certificates` — the binary needs `libgomp1` at
+  runtime just to start, and it isn't there. Fixed in the Dockerfile now; if this recurs after
+  changing build flags, `ldd` the compiled binary to see everything it actually links against.
 
 ## Troubleshooting
 

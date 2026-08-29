@@ -23,7 +23,10 @@ RUN cd node_modules/nodejs-whisper/cpp/whisper.cpp && \
 # --------------------------------------------------------------------------- runtime
 FROM node:22-bookworm-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+# libgomp1 is the OpenMP runtime whisper-cli was linked against in the build stage (which
+# has the full build-essential toolchain) — without it here, the binary can't even start:
+# "error while loading shared libraries: libgomp.so.1: cannot open shared object file".
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
