@@ -101,7 +101,11 @@ app.listen(config.port, () => {
     console.log(`  Transcription: whisper.cpp / ${config.whisperModel} (on-device)`);
     console.log(
         `  Summarization: ${
-            config.summarizer === 'local' ? `${config.local.modelFile.replace(/\.gguf$/i, '')} (on-device)` : 'Claude API'
+            config.summarizer === 'local'
+                ? `${config.local.modelFile.replace(/\.gguf$/i, '')} (on-device)`
+                : config.summarizer === 'mistral'
+                  ? 'Mistral API'
+                  : 'Claude API'
         }`
     );
     console.log(
