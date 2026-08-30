@@ -33,6 +33,12 @@ export const config = {
     port: Number(process.env.PORT) || 4300,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
     whisperModel: process.env.WHISPER_MODEL || 'large-v3-turbo',
+    // Delegate transcription to a whisper server running elsewhere (scripts/whisper-server.js)
+    // — for a host with no usable GPU, where local CPU transcription isn't practical. Leave
+    // unset to transcribe locally, exactly as before. Deliberately never falls back to local
+    // on failure (see transcribeRemote in services/transcribe.js) — that would defeat the
+    // point of offloading it. Trailing slash stripped so URL joins never double up.
+    whisperRemoteUrl: (process.env.WHISPER_REMOTE_URL || '').replace(/\/+$/, ''),
     itunesCountry: process.env.ITUNES_COUNTRY || 'fr',
     podcastIndex: {
         key: process.env.PODCASTINDEX_KEY || '',

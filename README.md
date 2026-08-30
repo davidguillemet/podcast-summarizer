@@ -104,6 +104,7 @@ curl -fL -o data/models/Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf \
 | `PODCASTINDEX_KEY` / `_SECRET` | no | Free from [podcastindex.org/api](https://podcastindex.org/api). Adds episode-level search and surfaces free publisher transcripts. Without it, iTunes only. |
 | `PORT` | no | Default `4300` — avoids the Firebase emulators (4000/5002/5003/9099/9199) and CRA (3000). |
 | `WHISPER_MODEL` | no | Default `large-v3-turbo`. `base`/`small` are much faster for testing. |
+| `WHISPER_REMOTE_URL` | no | Delegate transcription to a whisper server on another machine with a real GPU — see "Remote transcription" below. Blank means transcribe locally. |
 | `LOCAL_MODEL_FILE` | no | GGUF in `data/models/`. |
 | `LLAMA_CONTEXT` | no | Default `32768`. |
 | `LLAMA_IDLE_MINUTES` | no | Unload the 13 GB model after N idle minutes. `0` keeps it resident. |
@@ -213,6 +214,7 @@ src/
     pipeline.js        stage machine + progress events
 scripts/
   manage-users.js      CLI: add/list/remove logins (npm run users -- ...)
+  whisper-server.js    thin HTTP wrapper around transcribeLocal(), for a remote GPU machine
 public/                vanilla frontend, no build step
 vendor/llama.cpp       built locally, gitignored
 data/                  SQLite db, audio cache, models (gitignored)
@@ -310,6 +312,21 @@ GIT_CONFIG_KEY_0=safe.directory
 GIT_CONFIG_VALUE_0=*
 ```
 
+### Stopping a stuck job
+
+There's no in-app cancel button. On CPU-only hardware, whisper can legitimately take hours
+(see Troubleshooting below) — if you want to abandon a run rather than wait it out:
+
+```bash
+sudo docker compose restart podcast-summarizer
+```
+
+This is safe, not a workaround: jobs run in-process and are documented as unable to survive a
+restart (see **Jobs** under "How it works" below) — anything still marked running when the
+server boots is automatically marked failed. Restarting the container is the same recovery
+path a crash would trigger, just on purpose. The episode goes back to showing a "Try again" /
+"Summarize" button afterward.
+
 ### Real-world NAS deployment notes
 
 A few things that came up doing this for real on a QNAP TS-464, worth knowing ahead of time
@@ -341,6 +358,50 @@ rather than rediscovering:
   the runtime stage only installed `curl`/`ca-certificates` — the binary needs `libgomp1` at
   runtime just to start, and it isn't there. Fixed in the Dockerfile now; if this recurs after
   changing build flags, `ldd` the compiled binary to see everything it actually links against.
+
+## Remote transcription (for CPU-only hosts)
+
+A NAS with no GPU can transcribe, but slowly — even `WHISPER_MODEL=small` can take a very long
+time on a weak CPU. If you have another machine on the same LAN with a real GPU (Metal or
+CUDA) — a Mac, say — you can delegate just the transcription step to it instead, while
+everything else (search, the DB, summarization, the UI) keeps running on the NAS.
+
+**On the GPU machine**, with whisper.cpp already built there (see the setup steps at the top
+of this README):
+
+```bash
+npm run whisper-server   # listens on WHISPER_SERVER_PORT, default 4301
+```
+
+This reuses the exact same `transcribeLocal()` used everywhere else in the app — it's a thin
+HTTP wrapper, not a separate implementation — so it stays in sync with the local path
+automatically and uses whatever `WHISPER_MODEL` that machine's own `.env` is already set to.
+
+**On the NAS**, point at it:
+
+```
+WHISPER_REMOTE_URL=http://<gpu-machine-ip>:4301
+```
+
+That's the only change needed — `pipeline.js` picks the remote path automatically whenever
+this is set, with no other config.
+
+**No fallback, by design.** If the GPU machine is asleep or unreachable, the job fails
+immediately with a clear error ("is that machine awake and on the network?") rather than
+quietly falling back to slow local CPU transcription — a fast, honest failure beats a
+multi-hour surprise. There's a quick reachability check before the (large) audio download even
+starts, so an unreachable machine fails in seconds, not after downloading and converting the
+whole episode first.
+
+**No authentication** on the whisper server — same trust model as `llama-server`'s local port.
+Only run this on a trusted home LAN, never expose that port to the internet.
+
+**The GPU machine needs to actually be awake and reachable** whenever you want to transcribe
+something new — everything else in the app (browsing, search, re-summarizing already-
+transcribed episodes) keeps working via the NAS regardless. If it sleeps, Wake-on-LAN is
+possible in principle but unreliable on laptops in particular (lid closed, on battery); the
+simplest fix if this matters to you is just disabling sleep on that machine while it's home
+and plugged in.
 
 ## Troubleshooting
 

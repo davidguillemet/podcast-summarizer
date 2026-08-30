@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "users": "node scripts/manage-users.js"
+    "users": "node scripts/manage-users.js",
+    "whisper-server": "node scripts/whisper-server.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",

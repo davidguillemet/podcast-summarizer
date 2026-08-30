@@ -159,6 +159,17 @@ loads `.env` only `if (fs.existsSync(...))`, so Compose's `env_file:` (which inj
 straight into `process.env`, no literal file in the container) works without any extra glue —
 don't add one.
 
+**`WHISPER_REMOTE_URL` deliberately has no fallback to local transcription.** `transcribeRemote()`
+and `transcribeLocal()` in `services/transcribe.js` are mutually exclusive per job
+(`pipeline.js` picks one based on whether `config.whisperRemoteUrl` is set) — never "try
+remote, fall back to local on failure." That's intentional: this exists because local CPU
+transcription was judged impractical for the host running it, so silently falling back to it
+defeats the entire point and turns a fast, clear error into a multi-hour surprise instead.
+`assertWhisperRemoteReady()` runs *before* downloading the episode's audio, not just before
+the transcribe step, so a sleeping remote fails in seconds rather than after minutes of
+download + convert. `scripts/whisper-server.js` is a thin wrapper reusing `transcribeLocal()`
+as-is — don't reimplement whisper-invocation logic there; wrap the existing function.
+
 ## Conventions
 
 - ESM everywhere (`"type": "module"`), Node ≥ 22. Use `process.loadEnvFile()`, not `dotenv`.

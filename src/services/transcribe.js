@@ -114,6 +114,49 @@ export function transcribeLocal(wavPath, { onProgress = () => {} } = {}) {
 }
 
 /**
+ * Quick reachability check for the remote whisper server, run *before* downloading the
+ * episode's audio — a sleeping/unreachable machine should fail in seconds with a clear
+ * message, not after minutes of download + convert only to fail at the transcribe step.
+ */
+export async function assertWhisperRemoteReady() {
+    try {
+        const res = await fetch(`${config.whisperRemoteUrl}/health`, { signal: AbortSignal.timeout(5000) });
+        if (!res.ok) throw new Error(`responded with ${res.status}`);
+    } catch (err) {
+        throw new Error(
+            `Remote transcription service unreachable at ${config.whisperRemoteUrl} — is that ` +
+                `machine awake and on the network? (${err.message})`
+        );
+    }
+}
+
+/**
+ * Delegate transcription to a whisper server running elsewhere (see scripts/whisper-server.js).
+ * Same resolved shape as transcribeLocal: { text, srt, language }. Deliberately does not catch
+ * and fall back to local transcription on failure — WHISPER_REMOTE_URL being set means local
+ * CPU transcription was judged impractical, so silently falling back to it would just replace
+ * a clear, fast error with a very slow, confusing one.
+ */
+export async function transcribeRemote(wavPath, { onProgress = () => {} } = {}) {
+    onProgress(0.02); // some visible movement while the upload + remote transcription run
+
+    const res = await fetch(`${config.whisperRemoteUrl}/transcribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: fs.readFileSync(wavPath),
+        signal: AbortSignal.timeout(60 * 60 * 1000) // generous — remote is fast, but long episodes exist
+    });
+
+    if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        throw new Error(`Remote transcription failed (${res.status}): ${detail.slice(0, 400)}`);
+    }
+
+    onProgress(0.95);
+    return res.json();
+}
+
+/**
  * Fetch a publisher-supplied transcript (Podcasting 2.0). When one exists we skip
  * download + convert + transcribe entirely — it is free and instant.
  */

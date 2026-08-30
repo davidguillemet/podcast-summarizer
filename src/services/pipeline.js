@@ -12,7 +12,9 @@ import { decryptSecret } from './auth.js';
 import { audioPathFor, downloadAudio, convertToWav, probeDuration, removeIfExists } from './audio.js';
 import {
     assertWhisperReady,
+    assertWhisperRemoteReady,
     transcribeLocal,
+    transcribeRemote,
     fetchPublisherTranscript,
     buildTimestampedTranscript
 } from './transcribe.js';
@@ -127,7 +129,11 @@ export async function runJob(jobId) {
                 if (!episode.audio_url) {
                     throw new Error('Episode has no audio URL and no usable transcript');
                 }
-                assertWhisperReady();
+                if (config.whisperRemoteUrl) {
+                    await assertWhisperRemoteReady();
+                } else {
+                    assertWhisperReady();
+                }
 
                 mp3Path = audioPathFor(episode.id, 'mp3');
                 wavPath = audioPathFor(episode.id, 'wav');
@@ -144,7 +150,8 @@ export async function runJob(jobId) {
                 report('converting', 1, { force: true });
 
                 report('transcribing', 0, { force: true });
-                const asr = await transcribeLocal(wavPath, {
+                const transcribe = config.whisperRemoteUrl ? transcribeRemote : transcribeLocal;
+                const asr = await transcribe(wavPath, {
                     onProgress: (f) => report('transcribing', f)
                 });
                 result = { ...asr, source: 'whisper', durationSec };
