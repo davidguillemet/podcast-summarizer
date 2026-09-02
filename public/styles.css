@@ -237,6 +237,7 @@ button.fav-btn.active { color: var(--warn); }
 .episode + .episode { margin-top: 8px; }
 .episode-main { min-width: 0; flex: 1; }
 .episode-title { font-weight: 500; margin-bottom: 3px; }
+.ep-audio { display: block; width: 100%; max-width: 360px; height: 32px; margin-top: 6px; }
 
 .show-header { display: flex; gap: 18px; margin-bottom: 8px; align-items: flex-start; }
 

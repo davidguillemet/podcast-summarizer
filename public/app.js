@@ -313,6 +313,7 @@ async function viewShow(showId) {
                     ${esc(formatDate(e.published_at))} · ${formatDuration(e.duration_sec)}
                     ${e.transcript_url ? ' · <span class="badge">publisher transcript</span>' : ''}
                 </div>
+                ${e.audio_url ? `<audio class="ep-audio" controls preload="none" src="${esc(e.audio_url)}"></audio>` : ''}
             </div>
             <div class="row">
                 ${
@@ -457,6 +458,7 @@ async function viewSummary(episodeId, summaryId) {
                     ${s.language ? `<span class="badge neutral">${esc(s.language)}</span>` : ''}
                     <span class="badge">${esc(BACKEND_LABEL[summary.backend] || summary.backend || 'unknown')}</span>
                 </div>
+                ${episode.audio_url ? `<audio class="ep-audio" controls preload="none" src="${esc(episode.audio_url)}"></audio>` : ''}
             </div>
             <div class="row">
                 <a class="small" href="#/episode/${episode.id}/history">All runs</a>
