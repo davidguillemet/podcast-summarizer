@@ -1199,6 +1199,7 @@ window.addEventListener('hashchange', router);
 /** The login screen, shown instead of the app until /api/session confirms a valid cookie. */
 function renderLogin() {
     document.querySelector('.topbar nav').style.display = 'none';
+    document.getElementById('nav-toggle').style.display = 'none';
     app.innerHTML = `
         <div class="login-wrap">
             <h1>Sign in</h1>
@@ -1231,6 +1232,16 @@ document.getElementById('logout-link').addEventListener('click', async (e) => {
     location.reload();
 });
 
+/** Mobile-only hamburger menu; a no-op on desktop where .nav-toggle stays hidden by CSS. */
+const navEl = document.getElementById('nav');
+document.getElementById('nav-toggle').addEventListener('click', () => {
+    const open = navEl.classList.toggle('open');
+    document.getElementById('nav-toggle').setAttribute('aria-expanded', String(open));
+});
+navEl.addEventListener('click', (e) => {
+    if (e.target.tagName === 'A') navEl.classList.remove('open');
+});
+
 /** Load status before the first render so views know which backends exist. */
 async function boot() {
     const auth = await api('/session').catch(() => ({ authenticated: false }));
@@ -1239,6 +1250,7 @@ async function boot() {
         return;
     }
     document.querySelector('.topbar nav').style.display = '';
+    document.getElementById('nav-toggle').style.display = '';
 
     try {
         session.status = await api('/status');
