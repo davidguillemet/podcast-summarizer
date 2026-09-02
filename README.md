@@ -279,6 +279,33 @@ Docker deployment doesn't change that. Exposing the container to the actual inte
 needs its own answer (a VPN/Tailscale, or a reverse proxy with its own TLS) independent of
 Container Station's port mapping, which only controls reachability on your LAN.
 
+### Exposing this to the internet with Caddy
+
+`docker-compose.yml` includes a `caddy` service and a `Caddyfile` for this. Caddy terminates
+TLS with a free, auto-renewing Let's Encrypt certificate and reverse-proxies to the app over
+the internal Docker network — the app container itself no longer publishes port 4300 to the
+host, so Caddy is the only way in.
+
+1. **A domain or Dynamic DNS hostname pointing at your router's public IP.** Residential IPs
+   (Livebox included) are usually dynamic, so a free DDNS hostname (e.g. DuckDNS, No-IP, or
+   your router's own built-in DDNS client if it has one) is the easy option unless you already
+   own a domain. Edit the hostname in `Caddyfile` to match yours.
+2. **Router port forwarding: 80 and 443 → the NAS, not 4300.** Caddy needs 80 for the
+   Let's Encrypt HTTP-01 challenge (issuance *and* renewal — don't forward only 443) and 443
+   for HTTPS itself. Remove any old forward that pointed straight at 4300.
+3. **Set `COOKIE_SECURE=true`** in the NAS's `.env` once this is up — the session cookie is
+   marked `Secure` as a static flag, not derived per-request, so this only becomes correct
+   once Caddy (TLS) really is the only entry point. Leaving `4300:4300` published *and* setting
+   this to `true` would be the worst of both: still bypassable in plaintext, and login broken
+   for anyone still using the old `http://<nas-ip>:4300` link.
+4. `sudo docker compose up -d --build` to pick up both changes.
+
+LAN devices reach the same hostname too, as long as the router supports NAT hairpin/loopback
+(most consumer routers do) — internal traffic to the public domain gets routed back to the NAS
+without leaving the LAN. If it doesn't, `http://<nas-ip>:4300` is gone now (no longer
+published), so the fallback is pointing that hostname at the NAS's LAN IP in the router's own
+DNS/local overrides instead.
+
 ### Updating
 
 Pull the latest code, then rebuild — `data/` and `.env` are both untouched either way, since

@@ -3,12 +3,32 @@ services:
     build: .
     container_name: podcast-summarizer
     restart: unless-stopped
-    ports:
-      - "4300:4300"
+    # No "ports:" here on purpose — Caddy is the only container reachable from the host
+    # now (see the caddy service below). Compose still lets caddy reach this one by
+    # service name on the network it creates automatically for this file.
+    expose:
+      - "4300"
     # Real secrets stay in this file on the NAS host only — never baked into the image,
     # never committed. See .env.example for what it needs (a fresh ENCRYPTION_KEY,
-    # SUMMARIZER=claude or mistral — not local, there's no GPU here to run it on).
+    # SUMMARIZER=claude or mistral — not local, there's no GPU here to run it on, and
+    # COOKIE_SECURE=true once Caddy is actually the thing terminating TLS).
     env_file:
       - .env
     volumes:
       - ./data:/app/data
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: podcast-summarizer-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - podcast-summarizer
+
+volumes:
+  caddy_data:
