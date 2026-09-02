@@ -1015,7 +1015,7 @@ async function viewAccount() {
     render();
 }
 
-async function viewLibrary() {
+async function viewLibrary(showIdParam) {
     app.innerHTML = '<div class="loading">Loading library…</div>';
     const { items } = await api('/library');
 
@@ -1025,10 +1025,62 @@ async function viewLibrary() {
         return;
     }
 
+    if (showIdParam) return void renderLibraryEpisodes(Number(showIdParam), items);
+    return void renderLibraryShows(items);
+}
+
+/** Library landing page: one card per podcast that has at least one transcribed episode. */
+function renderLibraryShows(items) {
+    const shows = new Map();
+    for (const it of items) {
+        if (!shows.has(it.show_id)) {
+            shows.set(it.show_id, { id: it.show_id, title: it.show_title, artworkUrl: it.artwork_url, count: 0, pending: 0 });
+        }
+        const sh = shows.get(it.show_id);
+        sh.count++;
+        if (it.status === 'not_summarized') sh.pending++;
+    }
+    const list = [...shows.values()].sort((a, b) => a.title.localeCompare(b.title));
+
+    app.innerHTML = `
+        <h1>Library</h1>
+        <p class="muted small">${items.length} episode${items.length === 1 ? '' : 's'} across ${list.length} podcast${list.length === 1 ? '' : 's'}.</p>
+        <div class="cards">${list
+            .map(
+                (sh) => `
+            <div class="card" data-id="${sh.id}">
+                <img class="art" src="${esc(sh.artworkUrl || '')}" alt="" onerror="this.style.visibility='hidden'" />
+                <div class="card-body">
+                    <div class="card-title">${esc(sh.title)}</div>
+                    <div class="badges">
+                        <span class="badge neutral">${sh.count} episode${sh.count === 1 ? '' : 's'}</span>
+                        ${sh.pending ? `<span class="badge warn">${sh.pending} awaiting summary</span>` : ''}
+                    </div>
+                </div>
+            </div>`
+            )
+            .join('')}</div>`;
+
+    app.querySelectorAll('.card').forEach((el) =>
+        el.addEventListener('click', () => (location.hash = `#/library/${el.dataset.id}`))
+    );
+}
+
+/** One podcast's transcribed/summarized episodes — the Library page's previous flat-list view, filtered. */
+function renderLibraryEpisodes(showId, allItems) {
+    const items = allItems.filter((it) => it.show_id === showId);
+    if (items.length === 0) {
+        app.innerHTML = `<a class="small" href="#/library">← Library</a>
+            <div class="notice" style="margin-top:14px">No library episodes found for this podcast.</div>`;
+        return;
+    }
+
+    const showTitle = items[0].show_title;
     const pendingCount = items.filter((it) => it.status === 'not_summarized').length;
     app.innerHTML = `
-        <div class="spread" style="align-items:center">
-            <h1>Library</h1>
+        <a class="small" href="#/library">← Library</a>
+        <div class="spread" style="align-items:center;margin-top:14px">
+            <h1>${esc(showTitle)}</h1>
             ${pendingCount ? backendPicker() : ''}
         </div>
         <p class="muted small">
@@ -1109,7 +1161,7 @@ async function viewLibrary() {
             btn.textContent = 'Deleting…';
             try {
                 await api(`/episodes/${btn.dataset.id}/transcript`, { method: 'DELETE' });
-                viewLibrary();
+                viewLibrary(showId);
             } catch (err) {
                 app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
                 btn.disabled = false;
@@ -1135,6 +1187,7 @@ function router() {
     if (section === 'episode' && param && sub === 'compare' && subParam) return void viewCompare(param, subParam);
     if (section === 'episode' && param && sub === 'summary' && subParam) return void viewSummary(param, subParam);
     if (section === 'episode' && param) return void viewSummary(param);
+    if (section === 'library' && param) return void viewLibrary(param);
     if (section === 'library') return void viewLibrary();
     if (section === 'shows') return void viewShows();
     if (section === 'account') return void viewAccount();
