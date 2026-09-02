@@ -411,4 +411,14 @@ ul.points li { margin-bottom: 7px; }
 
     .spread { flex-direction: column; align-items: stretch; }
     .episode { flex-direction: column; align-items: stretch; }
+
+    /* The Library card's Transcript/Delete row competing for space alongside
+       the thumbnail and title squeezes card-body to ~130px, wrapping titles
+       5-6 lines deep and stacking badges one per line. Push it to its own
+       full-width line instead — flex-wrap rather than restructuring the
+       markup, since .card is shared with the search-results and podcast-list
+       cards, which only end in one small favorite-star button and are fine
+       as they are. */
+    .card { flex-wrap: wrap; }
+    .card > .row { flex-basis: 100%; justify-content: flex-end; }
 }
