@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { Agent } from 'undici';
 import { config, USER_AGENT } from '../config.js';
 
 const require = createRequire(import.meta.url);
@@ -137,6 +138,12 @@ export async function assertWhisperRemoteReady() {
     }
 }
 
+// Node's fetch() runs on undici, whose default Agent gives up waiting for response headers
+// after 5 minutes — fine for ordinary requests, but whisper-server sends nothing back until
+// the whole transcription is done, and a long episode routinely takes longer than that. Both
+// timeouts are disabled here so our own AbortSignal below is the one and only deadline.
+const remoteTranscribeDispatcher = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
+
 /**
  * Delegate transcription to a whisper server running elsewhere (see scripts/whisper-server.js).
  * Same resolved shape as transcribeLocal: { text, srt, language }. Deliberately does not catch
@@ -153,6 +160,7 @@ export async function transcribeRemote(wavPath, { onProgress = () => {} } = {}) 
             method: 'POST',
             headers: { 'Content-Type': 'audio/wav' },
             body: fs.readFileSync(wavPath),
+            dispatcher: remoteTranscribeDispatcher,
             signal: AbortSignal.timeout(60 * 60 * 1000) // generous — remote is fast, but long episodes exist
         });
     } catch (err) {
