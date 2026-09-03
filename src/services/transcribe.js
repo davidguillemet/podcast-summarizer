@@ -114,6 +114,13 @@ export function transcribeLocal(wavPath, { onProgress = () => {} } = {}) {
 }
 
 /**
+ * Node's fetch() collapses every low-level failure (connection refused, DNS, timeout, a
+ * dropped socket mid-transfer) into the same unhelpful "fetch failed" TypeError — the actual
+ * reason is on `.cause`, one level down, and gets lost unless callers dig it out explicitly.
+ */
+const describeFetchError = (err) => (err.cause?.message ? `${err.message}: ${err.cause.message}` : err.message);
+
+/**
  * Quick reachability check for the remote whisper server, run *before* downloading the
  * episode's audio — a sleeping/unreachable machine should fail in seconds with a clear
  * message, not after minutes of download + convert only to fail at the transcribe step.
@@ -125,7 +132,7 @@ export async function assertWhisperRemoteReady() {
     } catch (err) {
         throw new Error(
             `Remote transcription service unreachable at ${config.whisperRemoteUrl} — is that ` +
-                `machine awake and on the network? (${err.message})`
+                `machine awake and on the network? (${describeFetchError(err)})`
         );
     }
 }
@@ -140,12 +147,19 @@ export async function assertWhisperRemoteReady() {
 export async function transcribeRemote(wavPath, { onProgress = () => {} } = {}) {
     onProgress(0.02); // some visible movement while the upload + remote transcription run
 
-    const res = await fetch(`${config.whisperRemoteUrl}/transcribe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'audio/wav' },
-        body: fs.readFileSync(wavPath),
-        signal: AbortSignal.timeout(60 * 60 * 1000) // generous — remote is fast, but long episodes exist
-    });
+    let res;
+    try {
+        res = await fetch(`${config.whisperRemoteUrl}/transcribe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'audio/wav' },
+            body: fs.readFileSync(wavPath),
+            signal: AbortSignal.timeout(60 * 60 * 1000) // generous — remote is fast, but long episodes exist
+        });
+    } catch (err) {
+        // The upload/response can fail mid-transfer (sleep, Wi-Fi drop, remote restart) well
+        // after assertWhisperRemoteReady() passed, so this needs its own descriptive error too.
+        throw new Error(`Remote transcription request to ${config.whisperRemoteUrl} failed: ${describeFetchError(err)}`);
+    }
 
     if (!res.ok) {
         const detail = await res.text().catch(() => '');
