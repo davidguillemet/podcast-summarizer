@@ -495,10 +495,21 @@ async function viewSummary(episodeId, summaryId) {
                 </div>
                 ${episode.audio_url ? `<audio class="ep-audio" controls preload="none" src="${esc(episode.audio_url)}"></audio>` : ''}
             </div>
-            <div class="row">
+            <div class="row" style="align-items:center">
                 <a class="small" href="#/episode/${episode.id}/history">All runs</a>
-                ${otherBackends(summary.backend)
-                    .map((b) => `<button class="small" data-action="rerun" data-backend="${b}">Re-run with ${esc(BACKEND_LABEL[b])}</button>`)
+                <select id="rerun-level" title="Detail level for the re-run">
+                    ${LEVEL_ORDER.map(
+                        (l) =>
+                            `<option value="${l}" ${l === (summary.level || currentLevel()) ? 'selected' : ''}>${esc(LEVEL_LABEL[l])}</option>`
+                    ).join('')}
+                </select>
+                ${usableBackends()
+                    .map(
+                        (b) =>
+                            `<button class="small" data-action="rerun" data-backend="${b}">${
+                                b === summary.backend ? 'Re-run' : `Re-run with ${esc(BACKEND_LABEL[b])}`
+                            }</button>`
+                    )
                     .join('')}
                 <button class="small" id="copy">Copy Markdown</button>
                 <button class="small danger" id="delete">Delete</button>
@@ -583,6 +594,7 @@ async function viewSummary(episodeId, summaryId) {
     document.querySelectorAll('[data-action="rerun"]').forEach((btn) => {
         btn.addEventListener('click', async () => {
             const target = btn.dataset.backend;
+            const level = document.getElementById('rerun-level').value;
             const label = btn.textContent;
             btn.disabled = true;
             btn.textContent = 'Starting…';
@@ -590,7 +602,7 @@ async function viewSummary(episodeId, summaryId) {
                 // The transcript is cached, so this re-runs only the model call.
                 const res = await api('/jobs', {
                     method: 'POST',
-                    body: JSON.stringify({ episodeId: episode.id, backend: target, level: summary.level || currentLevel() })
+                    body: JSON.stringify({ episodeId: episode.id, backend: target, level })
                 });
                 location.hash = `#/job/${res.job.id}`;
             } catch (err) {
@@ -830,11 +842,11 @@ async function viewTranscript(episodeId) {
     });
 }
 
-/** The backend a summary was NOT produced with, if that one is also available. */
-/** Every backend available besides the one already used for this summary. */
-function otherBackends(used) {
+/** Every backend usable for a re-run — including the summary's own, so picking a new
+ *  detail level doesn't require switching backends too. */
+function usableBackends() {
     const available = session.status?.backends ?? {};
-    return BACKEND_ORDER.filter((b) => b !== used && available[b]);
+    return BACKEND_ORDER.filter((b) => available[b]);
 }
 
 function toMarkdown(s, episode, show) {
