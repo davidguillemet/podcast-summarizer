@@ -714,7 +714,10 @@ function renderCompareColumn({ episode, summary }) {
     return `
     <div class="compare-col">
         <div class="row" style="justify-content:space-between">
-            <span class="badge">${esc(BACKEND_LABEL[summary.backend] || summary.backend || 'unknown')}</span>
+            <div class="row">
+                <span class="badge">${esc(BACKEND_LABEL[summary.backend] || summary.backend || 'unknown')}</span>
+                ${summary.level ? `<span class="badge neutral">${esc(LEVEL_LABEL[summary.level] || summary.level)}</span>` : ''}
+            </div>
             <span class="muted small">${summary.input_tokens ?? '?'} in / ${summary.output_tokens ?? '?'} out</span>
         </div>
         <div class="muted small" style="margin-top:4px">${esc(summary.model || '')} · ${esc(formatDate(summary.created_at))}</div>
