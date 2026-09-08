@@ -1,5 +1,10 @@
 import { config } from '../config.js';
-import { SUMMARY_SCHEMA, SYSTEM_PROMPT, buildUserContent } from './summary-schema.js';
+import {
+    DEFAULT_SUMMARY_LEVEL,
+    buildSummarySchema,
+    buildSystemPrompt,
+    buildUserContent
+} from './summary-schema.js';
 
 export const MODEL = config.mistral.model;
 
@@ -11,7 +16,7 @@ const API_URL = 'https://api.mistral.ai/v1/chat/completions';
  */
 export async function summarizeTranscript(
     transcriptText,
-    { episodeTitle, showTitle, apiKey, onStatus = () => {} } = {}
+    { episodeTitle, showTitle, apiKey, level = DEFAULT_SUMMARY_LEVEL, onStatus = () => {} } = {}
 ) {
     onStatus('Writing the summary…');
 
@@ -27,10 +32,10 @@ export async function summarizeTranscript(
             max_tokens: 8000,
             response_format: {
                 type: 'json_schema',
-                json_schema: { name: 'summary', schema: SUMMARY_SCHEMA, strict: true }
+                json_schema: { name: 'summary', schema: buildSummarySchema(level), strict: true }
             },
             messages: [
-                { role: 'system', content: SYSTEM_PROMPT },
+                { role: 'system', content: buildSystemPrompt(level) },
                 { role: 'user', content: buildUserContent(transcriptText, { episodeTitle, showTitle }) }
             ]
         }),

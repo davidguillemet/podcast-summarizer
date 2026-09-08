@@ -1,13 +1,16 @@
 import { config } from '../config.js';
 import { ensureRunning, chat, countTokens, effectiveContext } from './llamaServer.js';
 import {
-    SUMMARY_SCHEMA,
-    SYSTEM_PROMPT,
+    DEFAULT_SUMMARY_LEVEL,
+    buildSummarySchema,
+    buildSystemPrompt,
     CHUNK_NOTES_PROMPT,
     buildUserContent
 } from './summary-schema.js';
 
-const OUTPUT_RESERVE = 4096; // room for the JSON summary
+// Room for the JSON summary — detailed asks for more chapters and longer prose per chapter,
+// so it needs a bigger completion budget or it hits the output limit before finishing.
+const OUTPUT_RESERVE = { brief: 2048, standard: 4096, detailed: 6144 };
 const NOTES_RESERVE = 1600; // room for one chunk's notes
 
 /**
@@ -40,13 +43,17 @@ function chunkByCharBudget(text, charBudget) {
  * notes and then reduced — which also happens to fix the failure mode small models
  * have on long inputs, where they cover the opening thoroughly and skim the rest.
  */
-export async function summarizeTranscript(transcriptText, { episodeTitle, showTitle, onStatus = () => {} } = {}) {
+export async function summarizeTranscript(
+    transcriptText,
+    { episodeTitle, showTitle, level = DEFAULT_SUMMARY_LEVEL, onStatus = () => {} } = {}
+) {
     await ensureRunning({ onStatus });
 
+    const outputReserve = OUTPUT_RESERVE[level] ?? OUTPUT_RESERVE[DEFAULT_SUMMARY_LEVEL];
     const userContent = buildUserContent(transcriptText, { episodeTitle, showTitle });
     const totalTokens = await countTokens(userContent);
     // Size against the running server, which may differ from config if we adopted an orphan.
-    const budget = effectiveContext() - OUTPUT_RESERVE - 600;
+    const budget = effectiveContext() - outputReserve - 600;
 
     let finalInput = userContent;
     let strategy = 'single-pass';
@@ -85,10 +92,10 @@ export async function summarizeTranscript(transcriptText, { episodeTitle, showTi
 
     onStatus('Writing the summary…');
     const { text, finishReason, usage } = await chat({
-        system: SYSTEM_PROMPT,
+        system: buildSystemPrompt(level),
         user: finalInput,
-        schema: SUMMARY_SCHEMA,
-        maxTokens: OUTPUT_RESERVE
+        schema: buildSummarySchema(level),
+        maxTokens: outputReserve
     });
 
     if (finishReason === 'length') {

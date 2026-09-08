@@ -62,6 +62,9 @@ let activeStream = null;
 const BACKEND_LABEL = { claude: 'Claude', mistral: 'Mistral (remote)', local: 'Mistral (local)' };
 const BACKEND_ORDER = ['claude', 'mistral', 'local'];
 
+const LEVEL_LABEL = { brief: 'Brief', standard: 'Standard', detailed: 'Detailed' };
+const LEVEL_ORDER = ['brief', 'standard', 'detailed'];
+
 /** Feed URLs vary by trailing slash / case; normalize before comparing search results to DB rows. */
 const normalizeFeedUrl = (url) => String(url || '').trim().toLowerCase().replace(/\/+$/, '');
 
@@ -94,6 +97,31 @@ function backendPicker() {
 function wireBackendPicker() {
     document.getElementById('backend-picker')?.addEventListener('change', (e) => {
         session.backend = e.target.value;
+    });
+}
+
+/** Which detail level new jobs should use — defaults to the account's saved default. */
+const currentLevel = () => session.level || session.status?.summaryLevel || 'standard';
+
+function levelPicker() {
+    const options = session.status?.summaryLevels ?? LEVEL_ORDER;
+    return `
+        <label class="small muted" style="display:flex;align-items:center;gap:6px">
+            Detail
+            <select id="level-picker">
+                ${options
+                    .map(
+                        (l) =>
+                            `<option value="${l}" ${l === currentLevel() ? 'selected' : ''}>${esc(LEVEL_LABEL[l] || l)}</option>`
+                    )
+                    .join('')}
+            </select>
+        </label>`;
+}
+
+function wireLevelPicker() {
+    document.getElementById('level-picker')?.addEventListener('change', (e) => {
+        session.level = e.target.value;
     });
 }
 
@@ -260,12 +288,14 @@ async function viewShow(showId) {
             <h2>Episodes</h2>
             <div class="row">
                 ${backendPicker()}
+                ${levelPicker()}
                 <button class="small" id="refresh-episodes">Refresh episodes</button>
             </div>
         </div>
         <div id="episodes"></div>
     `;
     wireBackendPicker();
+    wireLevelPicker();
 
     document.getElementById('refresh-episodes').addEventListener('click', async (e) => {
         e.target.disabled = true;
@@ -346,7 +376,7 @@ async function viewShow(showId) {
         try {
             const res = await api('/jobs', {
                 method: 'POST',
-                body: JSON.stringify({ episodeId: Number(id), backend: currentBackend() })
+                body: JSON.stringify({ episodeId: Number(id), backend: currentBackend(), level: currentLevel() })
             });
             location.hash = `#/job/${res.job.id}`;
         } catch (err) {
@@ -409,7 +439,11 @@ function viewJob(jobId) {
             document.getElementById('retry')?.addEventListener('click', async () => {
                 const res = await api('/jobs', {
                     method: 'POST',
-                    body: JSON.stringify({ episodeId: job.episode_id, backend: job.backend || currentBackend() })
+                    body: JSON.stringify({
+                        episodeId: job.episode_id,
+                        backend: job.backend || currentBackend(),
+                        level: job.level || currentLevel()
+                    })
                 });
                 location.hash = `#/job/${res.job.id}`;
                 router();
@@ -457,6 +491,7 @@ async function viewSummary(episodeId, summaryId) {
                     <span class="badge neutral">${esc(transcript?.source === 'publisher' ? 'publisher transcript' : 'whisper')}</span>
                     ${s.language ? `<span class="badge neutral">${esc(s.language)}</span>` : ''}
                     <span class="badge">${esc(BACKEND_LABEL[summary.backend] || summary.backend || 'unknown')}</span>
+                    ${summary.level ? `<span class="badge neutral">${esc(LEVEL_LABEL[summary.level] || summary.level)}</span>` : ''}
                 </div>
                 ${episode.audio_url ? `<audio class="ep-audio" controls preload="none" src="${esc(episode.audio_url)}"></audio>` : ''}
             </div>
@@ -555,7 +590,7 @@ async function viewSummary(episodeId, summaryId) {
                 // The transcript is cached, so this re-runs only the model call.
                 const res = await api('/jobs', {
                     method: 'POST',
-                    body: JSON.stringify({ episodeId: episode.id, backend: target })
+                    body: JSON.stringify({ episodeId: episode.id, backend: target, level: summary.level || currentLevel() })
                 });
                 location.hash = `#/job/${res.job.id}`;
             } catch (err) {
@@ -601,6 +636,7 @@ async function viewHistory(episodeId) {
                 <div class="episode-title">${esc(s.data?.title || episode.title)}</div>
                 <div class="muted small">
                     <span class="badge">${esc(BACKEND_LABEL[s.backend] || s.backend || 'unknown')}</span>
+                    ${s.level ? `<span class="badge neutral">${esc(LEVEL_LABEL[s.level] || s.level)}</span>` : ''}
                     ${esc(s.model || '')} ·
                     ${s.input_tokens ?? '?'} in / ${s.output_tokens ?? '?'} out ·
                     ${esc(formatDate(s.created_at))}
@@ -965,7 +1001,41 @@ async function viewAccount() {
 
             ${keyRow('claude', 'Claude', 'sk-ant-...')}
             ${keyRow('mistral', 'Mistral', 'sk-mis-...')}
+
+            <h2>Summary detail level</h2>
+            <p class="muted small">
+                Default level for new summaries — how many chapters, and how much to write for
+                each. Override it per run from the "Detail" picker next to a podcast's episodes.
+            </p>
+            <div class="row" style="margin-top:8px">
+                <select id="summary-level-select">
+                    ${LEVEL_ORDER.map(
+                        (l) => `<option value="${l}" ${l === data.summaryLevel ? 'selected' : ''}>${esc(LEVEL_LABEL[l])}</option>`
+                    ).join('')}
+                </select>
+                <button class="small primary" id="save-level">Save</button>
+            </div>
         `;
+
+        document.getElementById('save-level')?.addEventListener('click', async (e) => {
+            const level = document.getElementById('summary-level-select').value;
+            e.target.disabled = true;
+            e.target.textContent = 'Saving…';
+            try {
+                await api('/account/summary-level', { method: 'PUT', body: JSON.stringify({ level }) });
+                data.summaryLevel = level;
+                session.status = await api('/status').catch(() => session.status);
+                e.target.textContent = 'Saved';
+                setTimeout(() => {
+                    e.target.textContent = 'Save';
+                    e.target.disabled = false;
+                }, 1200);
+            } catch (err) {
+                app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+                e.target.disabled = false;
+                e.target.textContent = 'Save';
+            }
+        });
 
         document.querySelectorAll('[data-action="save-key"]').forEach((btn) =>
             btn.addEventListener('click', async () => {
@@ -1081,7 +1151,7 @@ function renderLibraryEpisodes(showId, allItems) {
         <a class="small" href="#/library">← Library</a>
         <div class="spread" style="align-items:center;margin-top:14px">
             <h1>${esc(showTitle)}</h1>
-            ${pendingCount ? backendPicker() : ''}
+            ${pendingCount ? `${backendPicker()}${levelPicker()}` : ''}
         </div>
         <p class="muted small">
             ${items.length} episode${items.length === 1 ? '' : 's'}
@@ -1102,7 +1172,8 @@ function renderLibraryEpisodes(showId, allItems) {
                         ${
                             it.status === 'not_summarized'
                                 ? '<span class="badge warn">not summarized</span>'
-                                : `<span class="badge">${esc(BACKEND_LABEL[it.backend] || it.backend)}</span>`
+                                : `<span class="badge">${esc(BACKEND_LABEL[it.backend] || it.backend)}</span>
+                                   ${it.level ? `<span class="badge neutral">${esc(LEVEL_LABEL[it.level] || it.level)}</span>` : ''}`
                         }
                     </div>
                 </div>
@@ -1120,6 +1191,7 @@ function renderLibraryEpisodes(showId, allItems) {
             )
             .join('')}</div>`;
     wireBackendPicker();
+    wireLevelPicker();
 
     app.querySelectorAll('.card').forEach((el) => {
         if (el.dataset.status === 'summarized') {
@@ -1136,7 +1208,7 @@ function renderLibraryEpisodes(showId, allItems) {
             try {
                 const res = await api('/jobs', {
                     method: 'POST',
-                    body: JSON.stringify({ episodeId: Number(btn.dataset.id), backend: currentBackend() })
+                    body: JSON.stringify({ episodeId: Number(btn.dataset.id), backend: currentBackend(), level: currentLevel() })
                 });
                 location.hash = `#/job/${res.job.id}`;
             } catch (err) {

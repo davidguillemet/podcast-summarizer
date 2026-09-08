@@ -1,6 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config.js';
-import { SUMMARY_SCHEMA, SYSTEM_PROMPT, buildUserContent } from './summary-schema.js';
+import {
+    DEFAULT_SUMMARY_LEVEL,
+    buildSummarySchema,
+    buildSystemPrompt,
+    buildUserContent
+} from './summary-schema.js';
 
 export const MODEL = 'claude-opus-5';
 
@@ -10,7 +15,7 @@ export const MODEL = 'claude-opus-5';
  */
 export async function summarizeTranscript(
     transcriptText,
-    { episodeTitle, showTitle, apiKey, onStatus = () => {} } = {}
+    { episodeTitle, showTitle, apiKey, level = DEFAULT_SUMMARY_LEVEL, onStatus = () => {} } = {}
 ) {
     onStatus('Writing the summary…');
 
@@ -27,9 +32,9 @@ export async function summarizeTranscript(
         fallbacks: 'default',
         output_config: {
             effort: 'medium',
-            format: { type: 'json_schema', schema: SUMMARY_SCHEMA }
+            format: { type: 'json_schema', schema: buildSummarySchema(level) }
         },
-        system: SYSTEM_PROMPT,
+        system: buildSystemPrompt(level),
         messages: [{ role: 'user', content: buildUserContent(transcriptText, { episodeTitle, showTitle }) }]
     });
 

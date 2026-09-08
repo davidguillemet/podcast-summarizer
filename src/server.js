@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { config, paths, hasPodcastIndex, assertConfig } from './config.js';
 import { binaryPath, modelPath } from './services/llamaServer.js';
 import { recoverInterruptedJobs, getSession, deleteExpiredSessions, getUserById } from './db.js';
+import { SUMMARY_LEVELS, DEFAULT_SUMMARY_LEVEL } from './services/summary-schema.js';
 import authRoutes from './routes/auth.js';
 import accountRoutes from './routes/account.js';
 import searchRoutes from './routes/search.js';
@@ -66,6 +67,8 @@ app.get('/api/status', (req, res) => {
         whisperModel: config.whisperModel,
         itunesCountry: config.itunesCountry,
         summarizer: config.summarizer,
+        summaryLevel: user?.summary_level || DEFAULT_SUMMARY_LEVEL,
+        summaryLevels: SUMMARY_LEVELS,
         backends: {
             claude: Boolean(user?.claude_api_key_enc) || (isPremium && serverHasClaudeKey),
             mistral: Boolean(user?.mistral_api_key_enc) || (isPremium && serverHasMistralKey),

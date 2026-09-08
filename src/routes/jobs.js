@@ -10,18 +10,24 @@ import {
     deleteSummary,
     getTranscript,
     deleteTranscript,
-    createJob
+    createJob,
+    getUserById
 } from '../db.js';
 import { enqueue, position, queueState } from '../queue.js';
 import { jobEvents, resolveApiKey } from '../services/pipeline.js';
 import { audioPathFor, removeIfExists } from '../services/audio.js';
+import { SUMMARY_LEVELS, DEFAULT_SUMMARY_LEVEL } from '../services/summary-schema.js';
 import { config } from '../config.js';
 
 const router = Router();
 
 const withQueue = (job) => (job ? { ...job, queuePosition: position(job.id) } : job);
 
-/** Start (or rejoin) a job for an episode. `backend` overrides SUMMARIZER for this run. */
+/**
+ * Start (or rejoin) a job for an episode. `backend` overrides SUMMARIZER for this run;
+ * `level` overrides the user's account default detail level for this run only — the
+ * resolved value (never null) is stored on the job so history/comparison can show it.
+ */
 router.post('/jobs', (req, res) => {
     const episodeId = Number(req.body?.episodeId);
     const episode = getEpisode(episodeId);
@@ -31,6 +37,13 @@ router.post('/jobs', (req, res) => {
     if (backend && !['claude', 'mistral', 'local'].includes(backend)) {
         return res.status(400).json({ error: 'backend must be "claude", "mistral" or "local"' });
     }
+
+    const requestedLevel = req.body?.level ?? null;
+    if (requestedLevel && !SUMMARY_LEVELS.includes(requestedLevel)) {
+        return res.status(400).json({ error: `level must be one of: ${SUMMARY_LEVELS.join(', ')}` });
+    }
+    const user = getUserById(req.session.user_id);
+    const level = requestedLevel || user?.summary_level || DEFAULT_SUMMARY_LEVEL;
 
     // Fail before transcribing, not after — a doomed job would otherwise burn minutes of
     // whisper time only to hit the same check again at the summarize step.
@@ -44,7 +57,7 @@ router.post('/jobs', (req, res) => {
     const active = getActiveJobForEpisode(episodeId);
     if (active) return res.json({ job: withQueue(active), reused: true });
 
-    const job = createJob(episodeId, backend, req.session.user_id);
+    const job = createJob(episodeId, backend, req.session.user_id, level);
     enqueue(job.id);
     res.status(201).json({ job: withQueue(getJob(job.id)), reused: false });
 });

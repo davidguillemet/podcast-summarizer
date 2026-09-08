@@ -19,6 +19,7 @@ import {
     buildTimestampedTranscript
 } from './transcribe.js';
 import { summarizeTranscript, estimateCost } from './summarize.js';
+import { DEFAULT_SUMMARY_LEVEL } from './summary-schema.js';
 import { config } from '../config.js';
 
 /** Progress events for the SSE endpoint. Payload: the full job row. */
@@ -171,13 +172,15 @@ export async function runJob(jobId) {
             });
         }
 
-        // 3. Summarize with whichever backend this job asked for.
+        // 3. Summarize with whichever backend (and detail level) this job asked for.
         const backendName = job.backend || config.summarizer;
+        const level = job.level || DEFAULT_SUMMARY_LEVEL;
         report('summarizing', 0.2, { force: true });
 
         const forModel = buildTimestampedTranscript(transcript.srt, transcript.text);
         const { data, refusal, model, usage, backend } = await summarizeTranscript(forModel, {
             backend: backendName,
+            level,
             // The job owner's own key, if they've saved one for this backend — falls back to
             // the server's .env key inside the backend module when this is null.
             apiKey: resolveApiKey(job.user_id, backendName),
@@ -198,6 +201,7 @@ export async function runJob(jobId) {
             data,
             model,
             backend: backend || backendName,
+            level,
             inputTokens: usage?.input_tokens ?? null,
             outputTokens: usage?.output_tokens ?? null
         });

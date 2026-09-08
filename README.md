@@ -116,6 +116,13 @@ curl -fL -o data/models/Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf \
 You can also pick a backend per run from the UI, or per request:
 `POST /api/jobs {"episodeId": 42, "backend": "local"}`.
 
+**Summary detail level.** Every summary is generated at one of three levels — `brief`,
+`standard` (default) or `detailed` — which only changes how much the model writes (chapter
+count, sentences per chapter, how many key points/quotes to include), never the JSON shape, so
+levels stay directly comparable the same way backends do. Set your default from `#/account`
+(`PUT /api/account/summary-level`), or override it for one run from the UI picker or
+`POST /api/jobs {"episodeId": 42, "level": "detailed"}`.
+
 ## Authentication
 
 Every `/api/*` route except `/api/status`, `/api/login`, `/api/logout` and `/api/session`
@@ -177,9 +184,11 @@ valid *by construction* rather than by hope. A transcript that fits the context 
 summarized in one pass; a longer one is mapped to per-segment notes and then reduced. Roughly
 250 tokens per minute of speech, so 32k context covers about a 2-hour episode single-pass.
 
-All three backends share `summary-schema.js`, so their output is directly comparable. Because
-transcripts are cached, re-summarizing with a different backend costs one model call and no
-re-transcription — the summary page has a **Re-run with…** button for exactly this.
+All three backends share `summary-schema.js`, so their output is directly comparable — the same
+holds across the three detail levels, since a level only tunes the prompt/schema descriptions
+(how much to write), not the fields themselves. Because transcripts are cached, re-summarizing
+with a different backend or level costs one model call and no re-transcription — the summary
+page has a **Re-run with…** button for exactly this.
 
 **Jobs** run in-process through a serial FIFO queue (whisper and Mistral both saturate the GPU)
 and stream progress over SSE, including local sub-steps like `Reading segment 3 of 6`. Any job
@@ -230,12 +239,13 @@ Dockerfile, docker-compose.yml, docker-entrypoint.sh
 | POST | `/api/logout` | clears the session |
 | GET | `/api/session` | `{authenticated, username}` — always 200 |
 | GET | `/api/status` | config + which backends are usable (includes the caller's own keys) |
-| GET | `/api/account` | `{username, plan, claudeKeySet, mistralKeySet}` — requires login |
+| GET | `/api/account` | `{username, plan, claudeKeySet, mistralKeySet, summaryLevel}` — requires login |
 | PUT | `/api/account/keys` | `{claudeApiKey?, mistralApiKey?}` — set/clear your own keys; `""` clears |
+| PUT | `/api/account/summary-level` | `{level}` → set your default detail level (`brief`\|`standard`\|`detailed`) |
 | GET | `/api/search?q=` | merged show search — requires login |
 | POST | `/api/shows` | persist a search result, return episodes |
 | GET | `/api/shows/:id/episodes` | cached episodes (`?refresh=1` to refetch) |
-| POST | `/api/jobs` | `{episodeId, backend?}` → start or rejoin a job; `403` if the backend needs a key this user can't use |
+| POST | `/api/jobs` | `{episodeId, backend?, level?}` → start or rejoin a job; `403` if the backend needs a key this user can't use |
 | GET | `/api/jobs/:id` | status snapshot |
 | GET | `/api/jobs/:id/events` | SSE progress stream |
 | GET | `/api/episodes/:id/summary` | latest summary |

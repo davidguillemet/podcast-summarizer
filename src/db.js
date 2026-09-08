@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { paths } from './config.js';
+import { SUMMARY_LEVELS } from './services/summary-schema.js';
 
 const db = new Database(paths.db);
 db.pragma('journal_mode = WAL');
@@ -99,7 +100,14 @@ function ensureColumn(table, column, definition) {
     }
 }
 ensureColumn('summaries', 'backend', 'TEXT');
+ensureColumn('summaries', 'level', 'TEXT'); // 'brief' | 'standard' | 'detailed'
+// Rows written before this column existed were all produced with what is now called
+// 'standard' — the original hardcoded prompt/schema text is byte-for-byte what 'standard'
+// still says. Backfill them so the UI's level badge doesn't just silently disappear for
+// every summary generated before this feature; safe to re-run, and a no-op once caught up.
+db.prepare("UPDATE summaries SET level = 'standard' WHERE level IS NULL").run();
 ensureColumn('jobs', 'backend', 'TEXT');
+ensureColumn('jobs', 'level', 'TEXT'); // resolved at job creation — see routes/jobs.js
 ensureColumn('jobs', 'note', 'TEXT'); // human-readable sub-status, e.g. "Reading segment 2 of 4"
 ensureColumn('jobs', 'user_id', 'INTEGER REFERENCES users(id)');
 ensureColumn('shows', 'favorite', 'INTEGER NOT NULL DEFAULT 0');
@@ -110,6 +118,9 @@ ensureColumn('users', 'mistral_api_key_enc', 'TEXT');
 // server's shared key). No billing exists yet — everyone starts, and stays, 'free' until
 // an admin runs `npm run users -- set-plan <name> premium` by hand.
 ensureColumn('users', 'plan', "TEXT NOT NULL DEFAULT 'free'");
+// Default detail level for this user's new jobs — 'brief' | 'standard' | 'detailed'.
+// Overridable per job (routes/jobs.js), same relationship as backend has to config.summarizer.
+ensureColumn('users', 'summary_level', "TEXT NOT NULL DEFAULT 'standard'");
 
 const now = () => new Date().toISOString();
 
@@ -223,13 +234,13 @@ export const getEpisode = (id) => selectEpisode.get(id);
 /* ------------------------------------------------------------------- jobs */
 
 const insertJob = db.prepare(`
-    INSERT INTO jobs (episode_id, status, stage, progress, backend, user_id, created_at, updated_at)
-    VALUES (?, 'queued', 'queued', 0, ?, ?, ?, ?)
+    INSERT INTO jobs (episode_id, status, stage, progress, backend, level, user_id, created_at, updated_at)
+    VALUES (?, 'queued', 'queued', 0, ?, ?, ?, ?, ?)
     RETURNING *
 `);
-export function createJob(episodeId, backend = null, userId = null) {
+export function createJob(episodeId, backend = null, userId = null, level = null) {
     const ts = now();
-    return insertJob.get(episodeId, backend, userId, ts, ts);
+    return insertJob.get(episodeId, backend, level, userId, ts, ts);
 }
 
 const selectJob = db.prepare('SELECT * FROM jobs WHERE id = ?');
@@ -301,8 +312,8 @@ export const deleteTranscript = db.transaction((episodeId) => {
 /* -------------------------------------------------------------- summaries */
 
 const insertSummary = db.prepare(`
-    INSERT INTO summaries (episode_id, json, model, backend, input_tokens, output_tokens, created_at)
-    VALUES (@episode_id, @json, @model, @backend, @input_tokens, @output_tokens, @created_at)
+    INSERT INTO summaries (episode_id, json, model, backend, level, input_tokens, output_tokens, created_at)
+    VALUES (@episode_id, @json, @model, @backend, @level, @input_tokens, @output_tokens, @created_at)
     RETURNING *
 `);
 export function saveSummary(s) {
@@ -311,6 +322,7 @@ export function saveSummary(s) {
         json: JSON.stringify(s.data),
         model: s.model ?? null,
         backend: s.backend ?? null,
+        level: s.level ?? null,
         input_tokens: s.inputTokens ?? null,
         output_tokens: s.outputTokens ?? null,
         created_at: now()
@@ -341,7 +353,7 @@ export const deleteSummary = (id) => deleteSummaryStmt.run(id).changes > 0;
  */
 const selectLibrary = db.prepare(`
     SELECT s.id AS summary_id, COALESCE(s.created_at, t.created_at) AS created_at,
-           s.model, s.backend, s.input_tokens, s.output_tokens,
+           s.model, s.backend, s.level, s.input_tokens, s.output_tokens,
            e.id AS episode_id, e.title AS episode_title, e.published_at, e.duration_sec,
            sh.id AS show_id, sh.title AS show_title, sh.artwork_url,
            t.source AS transcript_source,
@@ -402,6 +414,12 @@ const setMistralKeyStmt = db.prepare('UPDATE users SET mistral_api_key_enc = ? W
 export function setUserApiKey(userId, provider, encrypted) {
     if (!(provider in KEY_COLUMN)) throw new Error(`Unknown key provider "${provider}"`);
     (provider === 'claude' ? setClaudeKeyStmt : setMistralKeyStmt).run(encrypted, userId);
+}
+
+const setSummaryLevelStmt = db.prepare('UPDATE users SET summary_level = ? WHERE id = ?');
+export function setUserSummaryLevel(userId, level) {
+    if (!SUMMARY_LEVELS.includes(level)) throw new Error(`Unknown summary level "${level}"`);
+    setSummaryLevelStmt.run(level, userId);
 }
 
 const setPlanStmt = db.prepare('UPDATE users SET plan = ? WHERE username = ?');
