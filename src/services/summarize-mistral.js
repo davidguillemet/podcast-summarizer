@@ -10,6 +10,10 @@ export const MODEL = config.mistral.model;
 
 const API_URL = 'https://api.mistral.ai/v1/chat/completions';
 
+// 'detailed' asks for more chapters and longer prose per chapter, so a fixed 8000-token cap
+// (fine for brief/standard) can genuinely run out before the JSON is complete on a long episode.
+const MAX_TOKENS = { brief: 4000, standard: 8000, detailed: 14000 };
+
 /**
  * Summarize in a single pass via the hosted Mistral API. Mistral Large's 128k context
  * comfortably covers even long episodes, so — like Claude — no map-reduce is needed.
@@ -29,7 +33,7 @@ export async function summarizeTranscript(
         body: JSON.stringify({
             model: MODEL,
             temperature: 0.15,
-            max_tokens: 8000,
+            max_tokens: MAX_TOKENS[level] ?? MAX_TOKENS[DEFAULT_SUMMARY_LEVEL],
             response_format: {
                 type: 'json_schema',
                 json_schema: { name: 'summary', schema: buildSummarySchema(level), strict: true }
