@@ -401,6 +401,7 @@ ul.points li { margin-bottom: 7px; }
 }
 .login-wrap input:focus { outline: none; border-color: var(--accent); }
 .login-wrap button { width: 100%; }
+.login-card .notice { box-shadow: var(--shadow-card); }
 
 /* --------------------------------------------------------------- account */
 
