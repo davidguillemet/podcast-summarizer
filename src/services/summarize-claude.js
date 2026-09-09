@@ -9,10 +9,13 @@ import {
 
 export const MODEL = 'claude-opus-5';
 
-// 'detailed' asks for more chapters and longer prose per chapter, so a budget sized for
-// 'standard' can run out — of the adaptive thinking budget or the final JSON — before
-// finishing on a long episode.
-const MAX_TOKENS = { brief: 8000, standard: 16000, detailed: 24000 };
+// With adaptive thinking, max_tokens is a hard ceiling on thinking + final text combined,
+// and thinking length is non-deterministic — the same transcript can make the model think
+// a very different amount from one run to the next. A budget tuned per level (even a
+// generous one) can still get unlucky and truncate before any final text is written. A flat,
+// generous ceiling doesn't cost more (billed on tokens actually generated, not on this
+// number) and this is a streaming request, so there's no timeout pressure to keep it tight.
+const MAX_TOKENS = 64000;
 
 /**
  * Summarize in a single pass. Even a three-hour episode is ~50k tokens, well
@@ -28,7 +31,7 @@ export async function summarizeTranscript(
     const client = new Anthropic({ apiKey: apiKey || config.anthropicApiKey });
     const stream = client.beta.messages.stream({
         model: MODEL,
-        max_tokens: MAX_TOKENS[level] ?? MAX_TOKENS[DEFAULT_SUMMARY_LEVEL],
+        max_tokens: MAX_TOKENS,
         thinking: { type: 'adaptive' },
         // Opus 5's safety classifiers can decline a request outright (HTTP 200 with
         // stop_reason "refusal"). Benign true-crime / infosec / medical episodes

@@ -10,9 +10,15 @@ export const MODEL = config.mistral.model;
 
 const API_URL = 'https://api.mistral.ai/v1/chat/completions';
 
-// 'detailed' asks for more chapters and longer prose per chapter, so a fixed 8000-token cap
-// (fine for brief/standard) can genuinely run out before the JSON is complete on a long episode.
-const MAX_TOKENS = { brief: 4000, standard: 8000, detailed: 14000 };
+// Completion length is non-deterministic — the same transcript can generate noticeably more
+// or fewer tokens from one run to the next, so even an empirically-tuned per-level cap can
+// still occasionally run out mid-JSON (this happened live: a cap sized from one successful
+// 'detailed' run failed on a later run of a different episode). A flat, generous ceiling
+// doesn't cost more — Mistral bills on tokens actually generated, not on max_tokens — and
+// Mistral Large's 128k context leaves ample room even for a long transcript. Matches the
+// Claude backend's ceiling for parity, though Mistral has no documented per-model output cap
+// to size against the way Claude's 128K max does — this is a verified-generous estimate.
+const MAX_TOKENS = 64000;
 
 /**
  * Summarize in a single pass via the hosted Mistral API. Mistral Large's 128k context
@@ -33,7 +39,7 @@ export async function summarizeTranscript(
         body: JSON.stringify({
             model: MODEL,
             temperature: 0.15,
-            max_tokens: MAX_TOKENS[level] ?? MAX_TOKENS[DEFAULT_SUMMARY_LEVEL],
+            max_tokens: MAX_TOKENS,
             response_format: {
                 type: 'json_schema',
                 json_schema: { name: 'summary', schema: buildSummarySchema(level), strict: true }
