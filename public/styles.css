@@ -400,11 +400,15 @@ ul.points li { margin-bottom: 7px; }
 }
 .key-row input:focus { outline: none; border-color: var(--accent); }
 
-/* --------------------------------------------------------------- library */
+/* -------------------------------------------------------------- elevated */
+/* Shared "elevated" component vocabulary — the redesign pilot's visual
+   language (subtle card depth, refined badges, icon-based quiet actions),
+   used wherever a page needs it. Started on the Library page; now shared
+   with the Show page's episode list, since both are the same row pattern. */
 
-.library-list { display: flex; flex-direction: column; gap: 10px; }
+.elevated-list { display: flex; flex-direction: column; gap: 10px; }
 
-.library-card {
+.elevated-card {
     display: flex;
     align-items: center;
     gap: 16px;
@@ -416,12 +420,12 @@ ul.points li { margin-bottom: 7px; }
     cursor: pointer;
     transition: border-color 0.15s;
 }
-.library-card:hover { border-color: var(--accent); }
-.library-card-body { flex: 1; min-width: 0; }
-.library-card-title { font-weight: 600; font-size: 16px; margin-bottom: 9px; }
-.library-chevron { flex-shrink: 0; color: var(--muted); }
+.elevated-card:hover { border-color: var(--accent); }
+.elevated-card-body { flex: 1; min-width: 0; }
+.elevated-card-title { font-weight: 600; font-size: 16px; margin-bottom: 9px; }
+.elevated-chevron { flex-shrink: 0; color: var(--muted); }
 
-.library-row {
+.elevated-row {
     display: flex;
     align-items: center;
     gap: 16px;
@@ -431,18 +435,18 @@ ul.points li { margin-bottom: 7px; }
     border-radius: var(--radius);
     box-shadow: var(--shadow-card);
 }
-.library-row-body { flex: 1; min-width: 0; }
-.library-row-title { font-weight: 500; font-size: 15px; margin-bottom: 8px; line-height: 1.35; }
+.elevated-row-body { flex: 1; min-width: 0; }
+.elevated-row-title { font-weight: 500; font-size: 15px; margin-bottom: 8px; line-height: 1.35; }
 
-.library-thumb, .library-row-thumb {
+.elevated-thumb, .elevated-row-thumb {
     flex-shrink: 0;
     border-radius: 9px;
     object-fit: cover;
     background: var(--surface-2);
 }
-.library-thumb { width: 60px; height: 60px; }
-.library-row-thumb { width: 52px; height: 52px; }
-.library-thumb-fallback {
+.elevated-thumb { width: 60px; height: 60px; }
+.elevated-row-thumb { width: 52px; height: 52px; }
+.elevated-thumb-fallback {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -450,11 +454,11 @@ ul.points li { margin-bottom: 7px; }
     font-weight: 700;
     letter-spacing: 0.01em;
 }
-.library-thumb.library-thumb-fallback { font-size: 19px; }
-.library-row-thumb.library-thumb-fallback { font-size: 15px; }
+.elevated-thumb.elevated-thumb-fallback { font-size: 19px; }
+.elevated-row-thumb.elevated-thumb-fallback { font-size: 15px; }
 
-.library-badges { display: flex; gap: 6px; flex-wrap: wrap; }
-.library-badge {
+.elevated-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.elevated-badge {
     font-size: 12px;
     padding: 3px 9px;
     border-radius: 20px;
@@ -462,13 +466,14 @@ ul.points li { margin-bottom: 7px; }
     color: var(--muted);
     white-space: nowrap;
 }
-.library-badge.accent { background: var(--accent-soft); color: var(--accent); }
-.library-badge.warn { background: rgba(229, 181, 103, 0.16); color: var(--warn); }
+.elevated-badge.accent { background: var(--accent-soft); color: var(--accent); }
+.elevated-badge.warn { background: rgba(229, 181, 103, 0.16); color: var(--warn); }
+.elevated-badge.done { background: rgba(88, 201, 138, 0.14); color: var(--success); }
 
-.library-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
-.library-actions a { padding: 7px 8px; }
+.elevated-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.elevated-actions a { padding: 7px 8px; }
 
-.library-delete-btn {
+.quiet-btn {
     font: inherit;
     display: flex;
     align-items: center;
@@ -481,10 +486,11 @@ ul.points li { margin-bottom: 7px; }
     cursor: pointer;
     border-radius: 8px;
 }
-.library-delete-btn:hover:not(:disabled) { color: var(--danger); background: var(--surface-2); }
-.library-delete-btn:disabled { opacity: 0.5; cursor: default; }
+.quiet-btn:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
+.quiet-btn:disabled { opacity: 0.5; cursor: default; }
+.quiet-btn.danger:hover:not(:disabled) { color: var(--danger); }
 
-.library-summarize-btn {
+.primary-btn {
     font: inherit;
     padding: 8px 16px;
     border: none;
@@ -496,13 +502,13 @@ ul.points li { margin-bottom: 7px; }
     cursor: pointer;
     white-space: nowrap;
 }
-.library-summarize-btn:hover:not(:disabled) { filter: brightness(1.1); }
-.library-summarize-btn:disabled { opacity: 0.5; cursor: default; }
+.primary-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.primary-btn:disabled { opacity: 0.5; cursor: default; }
 
 .back-link { display: inline-flex; align-items: center; }
 
-.library-select-group { display: flex; gap: 8px; flex-wrap: wrap; }
-.library-select-group label {
+.select-pill-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.select-pill-group label {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -515,7 +521,7 @@ ul.points li { margin-bottom: 7px; }
     white-space: nowrap;
     margin: 0;
 }
-.library-select-group select {
+.select-pill-group select {
     font: inherit;
     appearance: none;
     -webkit-appearance: none;
@@ -532,7 +538,7 @@ ul.points li { margin-bottom: 7px; }
     background-size: 5px 5px, 5px 5px;
     background-repeat: no-repeat;
 }
-.library-select-group select:focus { outline: none; }
+.select-pill-group select:focus { outline: none; }
 
 /* ----------------------------------------------------------------- mobile */
 /* .spread and .episode assume side-by-side space for a title and a button
@@ -565,9 +571,9 @@ ul.points li { margin-bottom: 7px; }
     .spread { flex-direction: column; align-items: stretch; }
     .episode { flex-direction: column; align-items: stretch; }
 
-    /* Same problem the old Library markup had: the trailing action cluster
-       competing for space alongside the thumbnail and title squeezes the
-       title column too narrow. Push actions to their own full-width line. */
-    .library-row { flex-wrap: wrap; }
-    .library-row > .library-actions { flex-basis: 100%; justify-content: flex-end; }
+    /* The trailing action cluster competing for space alongside the thumbnail
+       and title squeezes the title column too narrow. Push actions to their
+       own full-width line instead. */
+    .elevated-row { flex-wrap: wrap; }
+    .elevated-row > .elevated-actions { flex-basis: 100%; justify-content: flex-end; }
 }

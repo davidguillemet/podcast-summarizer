@@ -287,12 +287,11 @@ async function viewShow(showId) {
         <div class="spread" style="align-items:center">
             <h2>Episodes</h2>
             <div class="row">
-                ${backendPicker()}
-                ${levelPicker()}
+                <div class="select-pill-group">${backendPicker()}${levelPicker()}</div>
                 <button class="small" id="refresh-episodes">Refresh episodes</button>
             </div>
         </div>
-        <div id="episodes"></div>
+        <div id="episodes" class="elevated-list"></div>
     `;
     wireBackendPicker();
     wireLevelPicker();
@@ -336,27 +335,33 @@ async function viewShow(showId) {
     list.innerHTML = episodes
         .map(
             (e) => `
-        <div class="episode" data-id="${e.id}">
-            <div class="episode-main">
-                <div class="episode-title">${esc(e.title)}</div>
-                <div class="muted small">
-                    ${esc(formatDate(e.published_at))} · ${formatDuration(e.duration_sec)}
-                    ${e.transcript_url ? ' · <span class="badge">publisher transcript</span>' : ''}
+        <div class="elevated-row" data-id="${e.id}">
+            <div class="elevated-row-body">
+                <div class="elevated-row-title">${esc(e.title)}</div>
+                <div class="elevated-badges">
+                    <span class="elevated-badge">${esc(formatDate(e.published_at))}</span>
+                    <span class="elevated-badge">${formatDuration(e.duration_sec)}</span>
+                    ${e.transcript_url ? '<span class="elevated-badge accent">publisher transcript</span>' : ''}
+                    ${
+                        e.summary_id
+                            ? '<span class="elevated-badge done">summarized</span>'
+                            : e.transcript_source
+                              ? '<span class="elevated-badge warn">transcribed</span>'
+                              : ''
+                    }
                 </div>
                 ${e.audio_url ? `<audio class="ep-audio" controls preload="none" src="${esc(e.audio_url)}"></audio>` : ''}
             </div>
-            <div class="row">
+            <div class="elevated-actions">
                 ${
                     e.summary_id
-                        ? `<span class="badge done">summarized</span>
-                           <button class="small" data-action="view" data-id="${e.id}">Read</button>`
+                        ? `<button class="quiet-btn" data-action="view" data-id="${e.id}">Read</button>`
                         : e.active_job_id
-                          ? `<button class="small" data-action="job" data-job="${e.active_job_id}">In progress…</button>`
+                          ? `<button class="quiet-btn" data-action="job" data-job="${e.active_job_id}">In progress…</button>`
                           : e.transcript_source
-                            ? `<span class="badge warn">transcribed</span>
-                               <a class="small" href="#/episode/${e.id}/transcript">Transcript</a>
-                               <button class="small primary" data-action="run" data-id="${e.id}">Summarize</button>`
-                            : `<button class="small primary" data-action="run" data-id="${e.id}">Summarize</button>`
+                            ? `<a class="small" href="#/episode/${e.id}/transcript">Transcript</a>
+                               <button class="primary-btn" data-action="run" data-id="${e.id}">Summarize</button>`
+                            : `<button class="primary-btn" data-action="run" data-id="${e.id}">Summarize</button>`
                 }
             </div>
         </div>`
@@ -1119,10 +1124,10 @@ function colorForString(str) {
 
 /** Real artwork when we have a URL, falling back to a colored monogram tile on a missing/broken image. */
 function artOrFallback(url, title, sizeClass) {
-    const tile = `<div class="${sizeClass} library-thumb-fallback" style="background:${colorForString(title)}">${esc(initials(title))}</div>`;
+    const tile = `<div class="${sizeClass} elevated-thumb-fallback" style="background:${colorForString(title)}">${esc(initials(title))}</div>`;
     if (!url) return tile;
     return `<img class="${sizeClass}" src="${esc(url)}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
-            <div class="${sizeClass} library-thumb-fallback" style="background:${colorForString(title)};display:none">${esc(initials(title))}</div>`;
+            <div class="${sizeClass} elevated-thumb-fallback" style="background:${colorForString(title)};display:none">${esc(initials(title))}</div>`;
 }
 
 const backIcon = () =>
@@ -1161,24 +1166,24 @@ function renderLibraryShows(items) {
     app.innerHTML = `
         <h1>Library</h1>
         <p class="muted small">${items.length} episode${items.length === 1 ? '' : 's'} across ${list.length} podcast${list.length === 1 ? '' : 's'}.</p>
-        <div class="library-list">${list
+        <div class="elevated-list">${list
             .map(
                 (sh) => `
-            <div class="library-card" data-id="${sh.id}">
-                ${artOrFallback(sh.artworkUrl, sh.title, 'library-thumb')}
-                <div class="library-card-body">
-                    <div class="library-card-title">${esc(sh.title)}</div>
-                    <div class="library-badges">
-                        <span class="library-badge">${sh.count} episode${sh.count === 1 ? '' : 's'}</span>
-                        ${sh.pending ? `<span class="library-badge warn">${sh.pending} awaiting summary</span>` : ''}
+            <div class="elevated-card" data-id="${sh.id}">
+                ${artOrFallback(sh.artworkUrl, sh.title, 'elevated-thumb')}
+                <div class="elevated-card-body">
+                    <div class="elevated-card-title">${esc(sh.title)}</div>
+                    <div class="elevated-badges">
+                        <span class="elevated-badge">${sh.count} episode${sh.count === 1 ? '' : 's'}</span>
+                        ${sh.pending ? `<span class="elevated-badge warn">${sh.pending} awaiting summary</span>` : ''}
                     </div>
                 </div>
-                <svg class="library-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                <svg class="elevated-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
             </div>`
             )
             .join('')}</div>`;
 
-    app.querySelectorAll('.library-card').forEach((el) =>
+    app.querySelectorAll('.elevated-card').forEach((el) =>
         el.addEventListener('click', () => (location.hash = `#/library/${el.dataset.id}`))
     );
 }
@@ -1199,40 +1204,40 @@ function renderLibraryEpisodes(showId, allItems) {
         <a class="small back-link" href="#/library">${backIcon()}Library</a>
         <div class="spread" style="align-items:flex-start;margin-top:10px">
             <h1>${esc(showTitle)}</h1>
-            ${pendingCount ? `<div class="library-select-group">${backendPicker()}${levelPicker()}</div>` : ''}
+            ${pendingCount ? `<div class="select-pill-group">${backendPicker()}${levelPicker()}</div>` : ''}
         </div>
         <p class="muted small">
             ${items.length} episode${items.length === 1 ? '' : 's'}
             ${pendingCount ? `— ${pendingCount} awaiting summary` : 'summarized'}.
         </p>
-        <div class="library-list">${items
+        <div class="elevated-list">${items
             .map(
                 (it) => `
-            <div class="library-row" data-id="${it.episode_id}" data-status="${it.status}">
-                ${artOrFallback(showArt, showTitle, 'library-row-thumb')}
-                <div class="library-row-body">
-                    <div class="library-row-title">${esc(it.episode_title)}</div>
-                    <div class="library-badges">
-                        <span class="library-badge">${esc(formatDate(it.created_at))}</span>
-                        <span class="library-badge">${formatDuration(it.duration_sec)}</span>
-                        <span class="library-badge">${esc(it.transcript_source || '')}</span>
+            <div class="elevated-row" data-id="${it.episode_id}" data-status="${it.status}">
+                ${artOrFallback(showArt, showTitle, 'elevated-row-thumb')}
+                <div class="elevated-row-body">
+                    <div class="elevated-row-title">${esc(it.episode_title)}</div>
+                    <div class="elevated-badges">
+                        <span class="elevated-badge">${esc(formatDate(it.created_at))}</span>
+                        <span class="elevated-badge">${formatDuration(it.duration_sec)}</span>
+                        <span class="elevated-badge">${esc(it.transcript_source || '')}</span>
                         ${
                             it.status === 'not_summarized'
-                                ? '<span class="library-badge warn">not summarized</span>'
-                                : `<span class="library-badge accent">${esc(BACKEND_LABEL[it.backend] || it.backend)}</span>
-                                   ${it.level ? `<span class="library-badge">${esc(LEVEL_LABEL[it.level] || it.level)}</span>` : ''}`
+                                ? '<span class="elevated-badge warn">not summarized</span>'
+                                : `<span class="elevated-badge accent">${esc(BACKEND_LABEL[it.backend] || it.backend)}</span>
+                                   ${it.level ? `<span class="elevated-badge">${esc(LEVEL_LABEL[it.level] || it.level)}</span>` : ''}`
                         }
                     </div>
                 </div>
-                <div class="library-actions">
+                <div class="elevated-actions">
                     <a class="small" href="#/episode/${it.episode_id}/transcript"
                        onclick="event.stopPropagation()">Transcript</a>
                     ${
                         it.status === 'not_summarized'
-                            ? `<button class="library-summarize-btn" data-action="summarize" data-id="${it.episode_id}">Summarize</button>`
+                            ? `<button class="primary-btn" data-action="summarize" data-id="${it.episode_id}">Summarize</button>`
                             : ''
                     }
-                    <button class="library-delete-btn" data-action="delete" data-id="${it.episode_id}">${trashIcon()}<span class="lib-btn-label">Delete</span></button>
+                    <button class="quiet-btn danger" data-action="delete" data-id="${it.episode_id}">${trashIcon()}<span class="lib-btn-label">Delete</span></button>
                 </div>
             </div>`
             )
@@ -1240,7 +1245,7 @@ function renderLibraryEpisodes(showId, allItems) {
     wireBackendPicker();
     wireLevelPicker();
 
-    app.querySelectorAll('.library-row').forEach((el) => {
+    app.querySelectorAll('.elevated-row').forEach((el) => {
         if (el.dataset.status === 'summarized') {
             el.style.cursor = 'pointer';
             el.addEventListener('click', () => (location.hash = `#/episode/${el.dataset.id}`));
