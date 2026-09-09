@@ -287,6 +287,7 @@ button.fav-btn.active { color: var(--warn); }
     border: 1px solid var(--border);
     border-left: 3px solid var(--accent);
     border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
 }
 
 .chapter {
@@ -298,10 +299,16 @@ button.fav-btn.active { color: var(--warn); }
 .chapter:last-child { border-bottom: none; }
 .ts {
     font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    font-size: 12px;
     color: var(--accent);
-    font-size: 13px;
-    min-width: 58px;
-    padding-top: 1px;
+    background: var(--accent-soft);
+    padding: 3px 8px;
+    border-radius: 20px;
+    min-width: 42px;
+    height: fit-content;
+    text-align: center;
+    flex-shrink: 0;
 }
 
 ul.points { margin: 0; padding-left: 20px; }
@@ -312,13 +319,20 @@ ul.points li { margin-bottom: 7px; }
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
     font-style: italic;
 }
 .quote + .quote { margin-top: 8px; }
 .quote-meta { font-style: normal; color: var(--muted); font-size: 12px; margin-top: 6px; }
 
 .terms { display: grid; gap: 8px; }
-.term { padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.term {
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+}
 .term-name { font-weight: 600; font-size: 14px; }
 .term-note { color: var(--muted); font-size: 13px; }
 

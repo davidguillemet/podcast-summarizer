@@ -485,39 +485,43 @@ async function viewSummary(episodeId, summaryId) {
     const s = summary.data;
 
     app.innerHTML = `
-        <a class="small" href="#/show/${show.id}">← ${esc(show.title)}</a>
+        <a class="small back-link" href="#/show/${show.id}">${backIcon()}${esc(show.title)}</a>
         <div class="spread" style="margin-top:14px">
             <div>
                 <h1>${esc(s.title || episode.title)}</h1>
                 <div class="muted small">${esc(episode.title)}</div>
                 <div class="meta-line">
-                    <span class="badge neutral">${esc(formatDate(episode.published_at))}</span>
-                    <span class="badge neutral">${formatDuration(transcript?.duration_sec || episode.duration_sec)}</span>
-                    <span class="badge neutral">${esc(transcript?.source === 'publisher' ? 'publisher transcript' : 'whisper')}</span>
-                    ${s.language ? `<span class="badge neutral">${esc(s.language)}</span>` : ''}
-                    <span class="badge">${esc(BACKEND_LABEL[summary.backend] || summary.backend || 'unknown')}</span>
-                    ${summary.level ? `<span class="badge neutral">${esc(LEVEL_LABEL[summary.level] || summary.level)}</span>` : ''}
+                    <span class="elevated-badge">${esc(formatDate(episode.published_at))}</span>
+                    <span class="elevated-badge">${formatDuration(transcript?.duration_sec || episode.duration_sec)}</span>
+                    <span class="elevated-badge">${esc(transcript?.source === 'publisher' ? 'publisher transcript' : 'whisper')}</span>
+                    ${s.language ? `<span class="elevated-badge">${esc(s.language)}</span>` : ''}
+                    <span class="elevated-badge accent">${esc(BACKEND_LABEL[summary.backend] || summary.backend || 'unknown')}</span>
+                    ${summary.level ? `<span class="elevated-badge">${esc(LEVEL_LABEL[summary.level] || summary.level)}</span>` : ''}
                 </div>
                 ${episode.audio_url ? `<audio class="ep-audio" controls preload="none" src="${esc(episode.audio_url)}"></audio>` : ''}
             </div>
             <div class="row" style="align-items:center">
                 <a class="small" href="#/episode/${episode.id}/history">All runs</a>
-                <select id="rerun-level" title="Detail level for the re-run">
-                    ${LEVEL_ORDER.map(
-                        (l) =>
-                            `<option value="${l}" ${l === (summary.level || currentLevel()) ? 'selected' : ''}>${esc(LEVEL_LABEL[l])}</option>`
-                    ).join('')}
-                </select>
+                <div class="select-pill-group">
+                    <label>Detail
+                        <select id="rerun-level" title="Detail level for the re-run">
+                            ${LEVEL_ORDER.map(
+                                (l) =>
+                                    `<option value="${l}" ${l === (summary.level || currentLevel()) ? 'selected' : ''}>${esc(LEVEL_LABEL[l])}</option>`
+                            ).join('')}
+                        </select>
+                    </label>
+                </div>
                 ${usableBackends()
                     .map(
                         (b) =>
-                            `<button class="small" data-action="rerun" data-backend="${b}">${
+                            `<button class="quiet-btn" data-action="rerun" data-backend="${b}">${
                                 b === summary.backend ? 'Re-run' : `Re-run with ${esc(BACKEND_LABEL[b])}`
                             }</button>`
                     )
                     .join('')}
-                <button class="small" id="copy">Copy Markdown</button>
-                <button class="small danger" id="delete">Delete</button>
+                <button class="quiet-btn" id="copy">Copy Markdown</button>
+                <button class="quiet-btn danger" id="delete">${trashIcon()}<span class="btn-label">Delete</span></button>
             </div>
         </div>
 
@@ -584,15 +588,17 @@ async function viewSummary(episodeId, summaryId) {
 
     document.getElementById('delete').addEventListener('click', async (e) => {
         if (!confirm('Delete this summary? The transcript is kept, so you can re-summarize later.')) return;
-        e.target.disabled = true;
-        e.target.textContent = 'Deleting…';
+        const btn = e.currentTarget;
+        const label = btn.querySelector('.btn-label');
+        btn.disabled = true;
+        label.textContent = 'Deleting…';
         try {
             await api(`/summaries/${summary.id}`, { method: 'DELETE' });
             location.hash = `#/episode/${episode.id}/history`;
         } catch (err) {
             app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
-            e.target.disabled = false;
-            e.target.textContent = 'Delete';
+            btn.disabled = false;
+            label.textContent = 'Delete';
         }
     });
 
@@ -1237,7 +1243,7 @@ function renderLibraryEpisodes(showId, allItems) {
                             ? `<button class="primary-btn" data-action="summarize" data-id="${it.episode_id}">Summarize</button>`
                             : ''
                     }
-                    <button class="quiet-btn danger" data-action="delete" data-id="${it.episode_id}">${trashIcon()}<span class="lib-btn-label">Delete</span></button>
+                    <button class="quiet-btn danger" data-action="delete" data-id="${it.episode_id}">${trashIcon()}<span class="btn-label">Delete</span></button>
                 </div>
             </div>`
             )
@@ -1282,7 +1288,7 @@ function renderLibraryEpisodes(showId, allItems) {
             )
                 return;
             btn.disabled = true;
-            const label = btn.querySelector('.lib-btn-label');
+            const label = btn.querySelector('.btn-label');
             label.textContent = 'Deleting…';
             try {
                 await api(`/episodes/${btn.dataset.id}/transcript`, { method: 'DELETE' });
