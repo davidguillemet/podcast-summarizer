@@ -1100,6 +1100,37 @@ async function viewAccount() {
     render();
 }
 
+const LIBRARY_PALETTE = ['#3a5b8c', '#3f7d6b', '#7a5680', '#8a6a3a', '#4f6b8a', '#6b5a8a', '#3a7a6a', '#8a4a4a'];
+
+/** First + last word initials for a show's monogram fallback tile — "Tout pour ma Santé" -> "TS". */
+function initials(title) {
+    const words = String(title || '').trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return '?';
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
+/** Deterministic color from a string, so the same show always gets the same fallback tile color. */
+function colorForString(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+    return LIBRARY_PALETTE[hash % LIBRARY_PALETTE.length];
+}
+
+/** Real artwork when we have a URL, falling back to a colored monogram tile on a missing/broken image. */
+function artOrFallback(url, title, sizeClass) {
+    const tile = `<div class="${sizeClass} library-thumb-fallback" style="background:${colorForString(title)}">${esc(initials(title))}</div>`;
+    if (!url) return tile;
+    return `<img class="${sizeClass}" src="${esc(url)}" alt="" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+            <div class="${sizeClass} library-thumb-fallback" style="background:${colorForString(title)};display:none">${esc(initials(title))}</div>`;
+}
+
+const backIcon = () =>
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;vertical-align:-2px"><polyline points="15 18 9 12 15 6"></polyline></svg>';
+
+const trashIcon = () =>
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>';
+
 async function viewLibrary(showIdParam) {
     app.innerHTML = '<div class="loading">Loading library…</div>';
     const { items } = await api('/library');
@@ -1130,23 +1161,24 @@ function renderLibraryShows(items) {
     app.innerHTML = `
         <h1>Library</h1>
         <p class="muted small">${items.length} episode${items.length === 1 ? '' : 's'} across ${list.length} podcast${list.length === 1 ? '' : 's'}.</p>
-        <div class="cards">${list
+        <div class="library-list">${list
             .map(
                 (sh) => `
-            <div class="card" data-id="${sh.id}">
-                <img class="art" src="${esc(sh.artworkUrl || '')}" alt="" onerror="this.style.visibility='hidden'" />
-                <div class="card-body">
-                    <div class="card-title">${esc(sh.title)}</div>
-                    <div class="badges">
-                        <span class="badge neutral">${sh.count} episode${sh.count === 1 ? '' : 's'}</span>
-                        ${sh.pending ? `<span class="badge warn">${sh.pending} awaiting summary</span>` : ''}
+            <div class="library-card" data-id="${sh.id}">
+                ${artOrFallback(sh.artworkUrl, sh.title, 'library-thumb')}
+                <div class="library-card-body">
+                    <div class="library-card-title">${esc(sh.title)}</div>
+                    <div class="library-badges">
+                        <span class="library-badge">${sh.count} episode${sh.count === 1 ? '' : 's'}</span>
+                        ${sh.pending ? `<span class="library-badge warn">${sh.pending} awaiting summary</span>` : ''}
                     </div>
                 </div>
+                <svg class="library-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
             </div>`
             )
             .join('')}</div>`;
 
-    app.querySelectorAll('.card').forEach((el) =>
+    app.querySelectorAll('.library-card').forEach((el) =>
         el.addEventListener('click', () => (location.hash = `#/library/${el.dataset.id}`))
     );
 }
@@ -1155,52 +1187,52 @@ function renderLibraryShows(items) {
 function renderLibraryEpisodes(showId, allItems) {
     const items = allItems.filter((it) => it.show_id === showId);
     if (items.length === 0) {
-        app.innerHTML = `<a class="small" href="#/library">← Library</a>
+        app.innerHTML = `<a class="small back-link" href="#/library">${backIcon()}Library</a>
             <div class="notice" style="margin-top:14px">No library episodes found for this podcast.</div>`;
         return;
     }
 
     const showTitle = items[0].show_title;
+    const showArt = items[0].artwork_url;
     const pendingCount = items.filter((it) => it.status === 'not_summarized').length;
     app.innerHTML = `
-        <a class="small" href="#/library">← Library</a>
-        <div class="spread" style="align-items:center;margin-top:14px">
+        <a class="small back-link" href="#/library">${backIcon()}Library</a>
+        <div class="spread" style="align-items:flex-start;margin-top:10px">
             <h1>${esc(showTitle)}</h1>
-            ${pendingCount ? `${backendPicker()}${levelPicker()}` : ''}
+            ${pendingCount ? `<div class="library-select-group">${backendPicker()}${levelPicker()}</div>` : ''}
         </div>
         <p class="muted small">
             ${items.length} episode${items.length === 1 ? '' : 's'}
             ${pendingCount ? `— ${pendingCount} awaiting summary` : 'summarized'}.
         </p>
-        <div class="cards">${items
+        <div class="library-list">${items
             .map(
                 (it) => `
-            <div class="card" data-id="${it.episode_id}" data-status="${it.status}">
-                <img class="art" src="${esc(it.artwork_url || '')}" alt="" onerror="this.style.visibility='hidden'" />
-                <div class="card-body">
-                    <div class="card-title">${esc(it.episode_title)}</div>
-                    <div class="card-sub">${esc(it.show_title)}</div>
-                    <div class="badges">
-                        <span class="badge neutral">${esc(formatDate(it.created_at))}</span>
-                        <span class="badge neutral">${formatDuration(it.duration_sec)}</span>
-                        <span class="badge neutral">${esc(it.transcript_source || '')}</span>
+            <div class="library-row" data-id="${it.episode_id}" data-status="${it.status}">
+                ${artOrFallback(showArt, showTitle, 'library-row-thumb')}
+                <div class="library-row-body">
+                    <div class="library-row-title">${esc(it.episode_title)}</div>
+                    <div class="library-badges">
+                        <span class="library-badge">${esc(formatDate(it.created_at))}</span>
+                        <span class="library-badge">${formatDuration(it.duration_sec)}</span>
+                        <span class="library-badge">${esc(it.transcript_source || '')}</span>
                         ${
                             it.status === 'not_summarized'
-                                ? '<span class="badge warn">not summarized</span>'
-                                : `<span class="badge">${esc(BACKEND_LABEL[it.backend] || it.backend)}</span>
-                                   ${it.level ? `<span class="badge neutral">${esc(LEVEL_LABEL[it.level] || it.level)}</span>` : ''}`
+                                ? '<span class="library-badge warn">not summarized</span>'
+                                : `<span class="library-badge accent">${esc(BACKEND_LABEL[it.backend] || it.backend)}</span>
+                                   ${it.level ? `<span class="library-badge">${esc(LEVEL_LABEL[it.level] || it.level)}</span>` : ''}`
                         }
                     </div>
                 </div>
-                <div class="row" style="align-self:center;flex-shrink:0">
+                <div class="library-actions">
                     <a class="small" href="#/episode/${it.episode_id}/transcript"
                        onclick="event.stopPropagation()">Transcript</a>
                     ${
                         it.status === 'not_summarized'
-                            ? `<button class="small primary" data-action="summarize" data-id="${it.episode_id}">Summarize</button>`
+                            ? `<button class="library-summarize-btn" data-action="summarize" data-id="${it.episode_id}">Summarize</button>`
                             : ''
                     }
-                    <button class="small danger" data-action="delete" data-id="${it.episode_id}">Delete</button>
+                    <button class="library-delete-btn" data-action="delete" data-id="${it.episode_id}">${trashIcon()}<span class="lib-btn-label">Delete</span></button>
                 </div>
             </div>`
             )
@@ -1208,7 +1240,7 @@ function renderLibraryEpisodes(showId, allItems) {
     wireBackendPicker();
     wireLevelPicker();
 
-    app.querySelectorAll('.card').forEach((el) => {
+    app.querySelectorAll('.library-row').forEach((el) => {
         if (el.dataset.status === 'summarized') {
             el.style.cursor = 'pointer';
             el.addEventListener('click', () => (location.hash = `#/episode/${el.dataset.id}`));
@@ -1245,14 +1277,15 @@ function renderLibraryEpisodes(showId, allItems) {
             )
                 return;
             btn.disabled = true;
-            btn.textContent = 'Deleting…';
+            const label = btn.querySelector('.lib-btn-label');
+            label.textContent = 'Deleting…';
             try {
                 await api(`/episodes/${btn.dataset.id}/transcript`, { method: 'DELETE' });
                 viewLibrary(showId);
             } catch (err) {
                 app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
                 btn.disabled = false;
-                btn.textContent = 'Delete';
+                label.textContent = 'Delete';
             }
         })
     );

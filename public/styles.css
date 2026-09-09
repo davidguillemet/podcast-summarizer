@@ -11,6 +11,7 @@
     --danger: #f2777a;
     --warn: #e5b567;
     --radius: 10px;
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 1px rgba(0, 0, 0, 0.22);
 }
 
 @media (prefers-color-scheme: light) {
@@ -26,6 +27,7 @@
         --success: #17864b;
         --danger: #c02b30;
         --warn: #9a6b12;
+        --shadow-card: 0 1px 2px rgba(20, 24, 32, 0.07), 0 1px 1px rgba(20, 24, 32, 0.04);
     }
 }
 
@@ -398,6 +400,140 @@ ul.points li { margin-bottom: 7px; }
 }
 .key-row input:focus { outline: none; border-color: var(--accent); }
 
+/* --------------------------------------------------------------- library */
+
+.library-list { display: flex; flex-direction: column; gap: 10px; }
+
+.library-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+.library-card:hover { border-color: var(--accent); }
+.library-card-body { flex: 1; min-width: 0; }
+.library-card-title { font-weight: 600; font-size: 16px; margin-bottom: 9px; }
+.library-chevron { flex-shrink: 0; color: var(--muted); }
+
+.library-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+}
+.library-row-body { flex: 1; min-width: 0; }
+.library-row-title { font-weight: 500; font-size: 15px; margin-bottom: 8px; line-height: 1.35; }
+
+.library-thumb, .library-row-thumb {
+    flex-shrink: 0;
+    border-radius: 9px;
+    object-fit: cover;
+    background: var(--surface-2);
+}
+.library-thumb { width: 60px; height: 60px; }
+.library-row-thumb { width: 52px; height: 52px; }
+.library-thumb-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+.library-thumb.library-thumb-fallback { font-size: 19px; }
+.library-row-thumb.library-thumb-fallback { font-size: 15px; }
+
+.library-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.library-badge {
+    font-size: 12px;
+    padding: 3px 9px;
+    border-radius: 20px;
+    background: var(--surface-2);
+    color: var(--muted);
+    white-space: nowrap;
+}
+.library-badge.accent { background: var(--accent-soft); color: var(--accent); }
+.library-badge.warn { background: rgba(229, 181, 103, 0.16); color: var(--warn); }
+
+.library-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.library-actions a { padding: 7px 8px; }
+
+.library-delete-btn {
+    font: inherit;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 8px;
+}
+.library-delete-btn:hover:not(:disabled) { color: var(--danger); background: var(--surface-2); }
+.library-delete-btn:disabled { opacity: 0.5; cursor: default; }
+
+.library-summarize-btn {
+    font: inherit;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.library-summarize-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.library-summarize-btn:disabled { opacity: 0.5; cursor: default; }
+
+.back-link { display: inline-flex; align-items: center; }
+
+.library-select-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.library-select-group label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+    font-size: 13px;
+    color: var(--muted);
+    white-space: nowrap;
+    margin: 0;
+}
+.library-select-group select {
+    font: inherit;
+    appearance: none;
+    -webkit-appearance: none;
+    font-weight: 500;
+    color: var(--text);
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    padding-right: 14px;
+    background-image:
+        linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+        linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: right 2px top 60%, right 6px top 60%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+}
+.library-select-group select:focus { outline: none; }
+
 /* ----------------------------------------------------------------- mobile */
 /* .spread and .episode assume side-by-side space for a title and a button
    cluster; below this width that cluster has nowhere to go and either wraps
@@ -429,13 +565,9 @@ ul.points li { margin-bottom: 7px; }
     .spread { flex-direction: column; align-items: stretch; }
     .episode { flex-direction: column; align-items: stretch; }
 
-    /* The Library card's Transcript/Delete row competing for space alongside
-       the thumbnail and title squeezes card-body to ~130px, wrapping titles
-       5-6 lines deep and stacking badges one per line. Push it to its own
-       full-width line instead — flex-wrap rather than restructuring the
-       markup, since .card is shared with the search-results and podcast-list
-       cards, which only end in one small favorite-star button and are fine
-       as they are. */
-    .card { flex-wrap: wrap; }
-    .card > .row { flex-basis: 100%; justify-content: flex-end; }
+    /* Same problem the old Library markup had: the trailing action cluster
+       competing for space alongside the thumbnail and title squeezes the
+       title column too narrow. Push actions to their own full-width line. */
+    .library-row { flex-wrap: wrap; }
+    .library-row > .library-actions { flex-basis: 100%; justify-content: flex-end; }
 }
