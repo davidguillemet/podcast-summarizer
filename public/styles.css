@@ -400,6 +400,7 @@ ul.points li { margin-bottom: 7px; }
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
     margin-bottom: 12px;
 }
 .key-row input {
@@ -413,6 +414,17 @@ ul.points li { margin-bottom: 7px; }
     color: var(--text);
 }
 .key-row input:focus { outline: none; border-color: var(--accent); }
+
+.form-select {
+    font: inherit;
+    padding: 9px 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+}
+.form-select:focus { outline: none; border-color: var(--accent); }
 
 /* -------------------------------------------------------------- elevated */
 /* Shared "elevated" component vocabulary — the redesign pilot's visual

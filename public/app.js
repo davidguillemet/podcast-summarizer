@@ -995,12 +995,12 @@ async function viewAccount() {
         <div class="key-row">
             <div class="spread" style="align-items:center">
                 <strong>${label}</strong>
-                <span class="badge ${isSet || isPremium ? 'done' : 'warn'}">${badge}</span>
+                <span class="elevated-badge ${isSet || isPremium ? 'done' : 'warn'}">${badge}</span>
             </div>
             <div class="row" style="margin-top:8px">
                 <input type="password" id="${provider}-key-input" placeholder="${esc(placeholder)}" autocomplete="off" />
-                <button class="small primary" data-action="save-key" data-provider="${provider}">Save</button>
-                ${isSet ? `<button class="small danger" data-action="clear-key" data-provider="${provider}">Clear</button>` : ''}
+                <button class="primary-btn" data-action="save-key" data-provider="${provider}">Save</button>
+                ${isSet ? `<button class="quiet-btn danger" data-action="clear-key" data-provider="${provider}">${trashIcon()}<span class="btn-label">Clear</span></button>` : ''}
             </div>
         </div>`;
     };
@@ -1010,7 +1010,7 @@ async function viewAccount() {
             <h1>Account</h1>
             <p class="muted small">
                 Signed in as <strong>${esc(data.username)}</strong> ·
-                <span class="badge ${isPremium ? 'done' : 'neutral'}">${isPremium ? 'Premium' : 'Free'} plan</span>
+                <span class="elevated-badge ${isPremium ? 'done' : ''}">${isPremium ? 'Premium' : 'Free'} plan</span>
             </p>
 
             <h2>Your API keys</h2>
@@ -1034,12 +1034,12 @@ async function viewAccount() {
                 each. Override it per run from the "Detail" picker next to a podcast's episodes.
             </p>
             <div class="row" style="margin-top:8px">
-                <select id="summary-level-select">
+                <select id="summary-level-select" class="form-select">
                     ${LEVEL_ORDER.map(
                         (l) => `<option value="${l}" ${l === data.summaryLevel ? 'selected' : ''}>${esc(LEVEL_LABEL[l])}</option>`
                     ).join('')}
                 </select>
-                <button class="small primary" id="save-level">Save</button>
+                <button class="primary-btn" id="save-level">Save</button>
             </div>
         `;
 
