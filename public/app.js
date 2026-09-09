@@ -189,21 +189,21 @@ function renderResults(container, data) {
 
     container.innerHTML =
         notices.join('') +
-        `<div class="cards">${data.results
+        `<div class="elevated-list">${data.results
             .map((r, i) => {
                 const isFav = session.favoriteFeedUrls.has(normalizeFeedUrl(r.feedUrl));
                 return `
-        <div class="card" data-index="${i}">
-            <img class="art" src="${esc(r.artworkUrl || '')}" alt="" onerror="this.style.visibility='hidden'" />
-            <div class="card-body">
-                <div class="card-title">${esc(r.title)}</div>
-                <div class="card-sub">${esc(r.author || 'Unknown')}${
+        <div class="elevated-card" data-index="${i}">
+            ${artOrFallback(r.artworkUrl, r.title, 'elevated-thumb')}
+            <div class="elevated-card-body">
+                <div class="elevated-card-title">${esc(r.title)}</div>
+                <div class="elevated-card-sub">${esc(r.author || 'Unknown')}${
                     r.episodeCount ? ` · ${r.episodeCount} episodes` : ''
                 }</div>
-                ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ''}
-                <div class="badges">
-                    ${r.sources.map((s) => `<span class="badge">${esc(s)}</span>`).join('')}
-                    ${(r.genres ?? []).slice(0, 2).map((g) => `<span class="badge neutral">${esc(g)}</span>`).join('')}
+                ${r.description ? `<div class="elevated-card-desc">${esc(r.description)}</div>` : ''}
+                <div class="elevated-badges">
+                    ${r.sources.map((s) => `<span class="elevated-badge accent">${esc(s)}</span>`).join('')}
+                    ${(r.genres ?? []).slice(0, 2).map((g) => `<span class="elevated-badge">${esc(g)}</span>`).join('')}
                 </div>
             </div>
             <button class="fav-btn ${isFav ? 'active' : ''}" style="align-self:center" data-action="favorite" data-index="${i}"
@@ -212,18 +212,18 @@ function renderResults(container, data) {
             })
             .join('')}</div>`;
 
-    container.querySelectorAll('.card').forEach((el) => {
+    container.querySelectorAll('.elevated-card').forEach((el) => {
         el.addEventListener('click', async () => {
             const show = data.results[Number(el.dataset.index)];
             el.style.opacity = '0.6';
-            el.querySelector('.card-title').textContent = `${show.title} — loading episodes…`;
+            el.querySelector('.elevated-card-title').textContent = `${show.title} — loading episodes…`;
             try {
                 const res = await api('/shows', { method: 'POST', body: JSON.stringify(show) });
                 location.hash = `#/show/${res.show.id}`;
             } catch (err) {
                 container.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
                 el.style.opacity = '';
-                el.querySelector('.card-title').textContent = show.title;
+                el.querySelector('.elevated-card-title').textContent = show.title;
             }
         });
     });
@@ -439,7 +439,7 @@ function viewJob(jobId) {
             closeStream();
             errorEl.innerHTML = `
                 <div class="notice error">${esc(job.error || 'Job failed')}</div>
-                <button class="small" id="retry">Try again</button>
+                <button class="primary-btn" id="retry">Try again</button>
                 <a class="small" style="margin-left:10px" href="#/">Back to search</a>`;
             document.getElementById('retry')?.addEventListener('click', async () => {
                 const res = await api('/jobs', {
@@ -639,13 +639,13 @@ async function viewHistory(episodeId) {
 
     const { episode, show, summaries } = data;
     app.innerHTML = `
-        <a class="small" href="#/show/${show.id}">← ${esc(show.title)}</a>
+        <a class="small back-link" href="#/show/${show.id}">${backIcon()}${esc(show.title)}</a>
         <div class="spread" style="align-items:center; margin-top:14px">
             <h1 style="margin:0">${esc(episode.title)}</h1>
-            <button class="small primary" id="compare" disabled>Compare selected</button>
+            <button class="primary-btn" id="compare" disabled>Compare selected</button>
         </div>
         <div class="muted small">All summary runs — ${summaries.length}. Select two or more to compare.</div>
-        <div id="runs" style="margin-top:16px"></div>
+        <div id="runs" class="elevated-list" style="margin-top:16px"></div>
     `;
 
     const list = document.getElementById('runs');
@@ -653,21 +653,21 @@ async function viewHistory(episodeId) {
         ? summaries
               .map(
                   (s) => `
-        <div class="episode" data-id="${s.id}">
-            <input type="checkbox" class="compare-check" data-id="${s.id}" style="margin-right:2px" />
-            <div class="episode-main">
-                <div class="episode-title">${esc(s.data?.title || episode.title)}</div>
-                <div class="muted small">
-                    <span class="badge">${esc(BACKEND_LABEL[s.backend] || s.backend || 'unknown')}</span>
-                    ${s.level ? `<span class="badge neutral">${esc(LEVEL_LABEL[s.level] || s.level)}</span>` : ''}
-                    ${esc(s.model || '')} ·
-                    ${s.input_tokens ?? '?'} in / ${s.output_tokens ?? '?'} out ·
-                    ${esc(formatDate(s.created_at))}
+        <div class="elevated-row" data-id="${s.id}">
+            <input type="checkbox" class="compare-check" data-id="${s.id}" />
+            <div class="elevated-row-body">
+                <div class="elevated-row-title">${esc(s.data?.title || episode.title)}</div>
+                <div class="elevated-badges">
+                    <span class="elevated-badge accent">${esc(BACKEND_LABEL[s.backend] || s.backend || 'unknown')}</span>
+                    ${s.level ? `<span class="elevated-badge">${esc(LEVEL_LABEL[s.level] || s.level)}</span>` : ''}
+                    <span class="elevated-badge">${esc(s.model || '')}</span>
+                    <span class="elevated-badge">${s.input_tokens ?? '?'} in / ${s.output_tokens ?? '?'} out</span>
+                    <span class="elevated-badge">${esc(formatDate(s.created_at))}</span>
                 </div>
             </div>
-            <div class="row">
-                <button class="small" data-action="view" data-id="${s.id}">View</button>
-                <button class="small danger" data-action="delete" data-id="${s.id}">Delete</button>
+            <div class="elevated-actions">
+                <button class="quiet-btn" data-action="view" data-id="${s.id}">View</button>
+                <button class="quiet-btn danger" data-action="delete" data-id="${s.id}">${trashIcon()}<span class="btn-label">Delete</span></button>
             </div>
         </div>`
               )
@@ -694,15 +694,16 @@ async function viewHistory(episodeId) {
         if (action === 'view') return void (location.hash = `#/episode/${episode.id}/summary/${id}`);
 
         if (!confirm('Delete this summary? The transcript is kept, so you can re-summarize later.')) return;
+        const label = btn.querySelector('.btn-label');
         btn.disabled = true;
-        btn.textContent = 'Deleting…';
+        label.textContent = 'Deleting…';
         try {
             await api(`/summaries/${id}`, { method: 'DELETE' });
             viewHistory(episodeId);
         } catch (err) {
             app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
             btn.disabled = false;
-            btn.textContent = 'Delete';
+            label.textContent = 'Delete';
         }
     });
 }
@@ -738,8 +739,8 @@ function renderCompareColumn({ episode, summary }) {
     <div class="compare-col">
         <div class="row" style="justify-content:space-between">
             <div class="row">
-                <span class="badge">${esc(BACKEND_LABEL[summary.backend] || summary.backend || 'unknown')}</span>
-                ${summary.level ? `<span class="badge neutral">${esc(LEVEL_LABEL[summary.level] || summary.level)}</span>` : ''}
+                <span class="elevated-badge accent">${esc(BACKEND_LABEL[summary.backend] || summary.backend || 'unknown')}</span>
+                ${summary.level ? `<span class="elevated-badge">${esc(LEVEL_LABEL[summary.level] || summary.level)}</span>` : ''}
             </div>
             <span class="muted small">${summary.input_tokens ?? '?'} in / ${summary.output_tokens ?? '?'} out</span>
         </div>
@@ -827,19 +828,19 @@ async function viewTranscript(episodeId) {
     const paragraphs = groupIntoParagraphs(transcript.text);
 
     app.innerHTML = `
-        <a class="small" href="#/show/${show.id}">← ${esc(show.title)}</a>
+        <a class="small back-link" href="#/show/${show.id}">${backIcon()}${esc(show.title)}</a>
         <div class="spread" style="margin-top:14px">
             <div>
                 <h1>${esc(episode.title)}</h1>
                 <div class="muted small">${esc(show.title)}</div>
                 <div class="meta-line">
-                    <span class="badge neutral">${formatDuration(transcript.duration_sec || episode.duration_sec)}</span>
-                    <span class="badge neutral">${esc(transcript.source === 'publisher' ? 'publisher transcript' : 'whisper')}</span>
-                    ${transcript.language ? `<span class="badge neutral">${esc(transcript.language)}</span>` : ''}
+                    <span class="elevated-badge">${formatDuration(transcript.duration_sec || episode.duration_sec)}</span>
+                    <span class="elevated-badge">${esc(transcript.source === 'publisher' ? 'publisher transcript' : 'whisper')}</span>
+                    ${transcript.language ? `<span class="elevated-badge">${esc(transcript.language)}</span>` : ''}
                 </div>
             </div>
             <div class="row">
-                <button class="small" id="copy-transcript">Copy transcript</button>
+                <button class="quiet-btn" id="copy-transcript">Copy transcript</button>
             </div>
         </div>
 
@@ -910,17 +911,17 @@ async function viewShows() {
                 </div>
             </div>
             <p class="muted small">${filtered.length} podcast${filtered.length === 1 ? '' : 's'}.</p>
-            <div class="cards">${filtered
+            <div class="elevated-list">${filtered
                 .map(
                     (sh, i) => `
-            <div class="card" data-id="${sh.show_id}">
-                <img class="art" src="${esc(sh.artwork_url || '')}" alt="" onerror="this.style.visibility='hidden'" />
-                <div class="card-body">
-                    <div class="card-title">${esc(sh.show_title)}</div>
-                    <div class="card-sub">${esc(sh.author || '')}</div>
-                    <div class="badges">
-                        <span class="badge neutral">${sh.transcript_count} transcribed</span>
-                        <span class="badge neutral">${sh.summarized_count} summarized</span>
+            <div class="elevated-card" data-id="${sh.show_id}">
+                ${artOrFallback(sh.artwork_url, sh.show_title, 'elevated-thumb')}
+                <div class="elevated-card-body">
+                    <div class="elevated-card-title">${esc(sh.show_title)}</div>
+                    <div class="elevated-card-sub">${esc(sh.author || '')}</div>
+                    <div class="elevated-badges">
+                        <span class="elevated-badge">${sh.transcript_count} transcribed</span>
+                        <span class="elevated-badge">${sh.summarized_count} summarized</span>
                     </div>
                 </div>
                 <button class="fav-btn ${sh.favorite ? 'active' : ''}" style="align-self:center" data-action="favorite" data-index="${i}"
@@ -941,7 +942,7 @@ async function viewShows() {
             })
         );
 
-        document.querySelectorAll('.card').forEach((el) => {
+        document.querySelectorAll('.elevated-card').forEach((el) => {
             el.addEventListener('click', (e) => {
                 if (e.target.closest('[data-action="favorite"]')) return;
                 location.hash = `#/show/${el.dataset.id}`;
@@ -1334,12 +1335,14 @@ function renderLogin() {
     app.innerHTML = `
         <div class="login-wrap">
             <h1>Sign in</h1>
-            <form id="login-form">
-                <input id="login-username" placeholder="Username" autocomplete="username" autofocus />
-                <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
-                <button class="primary" type="submit">Sign in</button>
-                <div id="login-error"></div>
-            </form>
+            <div class="login-card">
+                <form id="login-form">
+                    <input id="login-username" placeholder="Username" autocomplete="username" autofocus />
+                    <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
+                    <button class="primary-btn" type="submit">Sign in</button>
+                    <div id="login-error"></div>
+                </form>
+            </div>
         </div>
     `;
     document.getElementById('login-form').addEventListener('submit', async (e) => {
