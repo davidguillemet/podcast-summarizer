@@ -8,6 +8,15 @@ import {
 
 export const MODEL = config.mistral.model;
 
+// Same chat-completions request shape for every Mistral model, so there's no compatibility
+// list to maintain here the way summarize-claude.js has to.
+export const MODELS = [
+    { id: 'mistral-large-latest', label: 'Mistral Large — best quality' },
+    { id: 'mistral-medium-latest', label: 'Mistral Medium — balanced' },
+    { id: 'mistral-small-latest', label: 'Mistral Small — faster, cheaper' },
+    { id: 'ministral-8b-latest', label: 'Ministral 8B — fastest, cheapest' }
+];
+
 const API_URL = 'https://api.mistral.ai/v1/chat/completions';
 
 // Completion length is non-deterministic — the same transcript can generate noticeably more
@@ -26,9 +35,11 @@ const MAX_TOKENS = 64000;
  */
 export async function summarizeTranscript(
     transcriptText,
-    { episodeTitle, showTitle, apiKey, level = DEFAULT_SUMMARY_LEVEL, onStatus = () => {} } = {}
+    { episodeTitle, showTitle, apiKey, model, level = DEFAULT_SUMMARY_LEVEL, onStatus = () => {} } = {}
 ) {
     onStatus('Writing the summary…');
+
+    const chosenModel = MODELS.some((m) => m.id === model) ? model : MODEL;
 
     const res = await fetch(API_URL, {
         method: 'POST',
@@ -37,7 +48,7 @@ export async function summarizeTranscript(
             Authorization: `Bearer ${apiKey || config.mistral.apiKey}`
         },
         body: JSON.stringify({
-            model: MODEL,
+            model: chosenModel,
             temperature: 0.15,
             max_tokens: MAX_TOKENS,
             response_format: {
@@ -76,7 +87,7 @@ export async function summarizeTranscript(
         data,
         refusal: null,
         backend: 'mistral',
-        model: result.model || MODEL,
+        model: result.model || chosenModel,
         usage: {
             input_tokens: result.usage?.prompt_tokens ?? null,
             output_tokens: result.usage?.completion_tokens ?? null

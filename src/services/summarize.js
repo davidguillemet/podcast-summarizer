@@ -26,3 +26,6 @@ export function estimateCost(usage, backend = config.summarizer) {
 }
 
 export const CLAUDE_MODEL = claude.MODEL;
+export const CLAUDE_MODELS = claude.MODELS;
+export const MISTRAL_MODEL = mistral.MODEL;
+export const MISTRAL_MODELS = mistral.MODELS;

@@ -78,6 +78,19 @@ export function resolveApiKey(userId, backendName) {
     );
 }
 
+const MODEL_COLUMN = { claude: 'claude_model', mistral: 'mistral_model' };
+
+/**
+ * The user's saved model override for this backend (Account page), or null to use that
+ * backend's own default. 'local' has no model concept, so it's never restricted here.
+ */
+function resolveModel(userId, backendName) {
+    const column = MODEL_COLUMN[backendName];
+    if (!column) return null;
+    const user = getUserById(userId);
+    return user?.[column] || null;
+}
+
 function fail(jobId, error) {
     const job = updateJob(jobId, {
         status: 'failed',
@@ -184,6 +197,7 @@ export async function runJob(jobId) {
             // The job owner's own key, if they've saved one for this backend — falls back to
             // the server's .env key inside the backend module when this is null.
             apiKey: resolveApiKey(job.user_id, backendName),
+            model: resolveModel(job.user_id, backendName),
             episodeTitle: episode.title,
             showTitle: show?.title,
             // The local backend has long sub-steps (model load, per-segment notes);

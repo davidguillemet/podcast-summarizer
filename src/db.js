@@ -121,6 +121,11 @@ ensureColumn('users', 'plan', "TEXT NOT NULL DEFAULT 'free'");
 // Default detail level for this user's new jobs — 'brief' | 'standard' | 'detailed'.
 // Overridable per job (routes/jobs.js), same relationship as backend has to config.summarizer.
 ensureColumn('users', 'summary_level', "TEXT NOT NULL DEFAULT 'standard'");
+// Per-user model override within a backend — NULL means "use that backend's default"
+// (summarize-claude.js / summarize-mistral.js MODEL). See their MODELS exports for the
+// allowed values; 'local' has no model concept, so there's no local_model column.
+ensureColumn('users', 'claude_model', 'TEXT');
+ensureColumn('users', 'mistral_model', 'TEXT');
 
 const now = () => new Date().toISOString();
 
@@ -414,6 +419,16 @@ const setMistralKeyStmt = db.prepare('UPDATE users SET mistral_api_key_enc = ? W
 export function setUserApiKey(userId, provider, encrypted) {
     if (!(provider in KEY_COLUMN)) throw new Error(`Unknown key provider "${provider}"`);
     (provider === 'claude' ? setClaudeKeyStmt : setMistralKeyStmt).run(encrypted, userId);
+}
+
+const MODEL_COLUMN = { claude: 'claude_model', mistral: 'mistral_model' };
+const setClaudeModelStmt = db.prepare('UPDATE users SET claude_model = ? WHERE id = ?');
+const setMistralModelStmt = db.prepare('UPDATE users SET mistral_model = ? WHERE id = ?');
+
+/** `model` null clears the override, falling back to that backend's default. */
+export function setUserModel(userId, provider, model) {
+    if (!(provider in MODEL_COLUMN)) throw new Error(`Unknown model provider "${provider}"`);
+    (provider === 'claude' ? setClaudeModelStmt : setMistralModelStmt).run(model, userId);
 }
 
 const setSummaryLevelStmt = db.prepare('UPDATE users SET summary_level = ? WHERE id = ?');

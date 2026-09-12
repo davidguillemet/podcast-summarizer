@@ -496,6 +496,7 @@ async function viewSummary(episodeId, summaryId) {
                     <span class="elevated-badge">${esc(transcript?.source === 'publisher' ? 'publisher transcript' : 'whisper')}</span>
                     ${s.language ? `<span class="elevated-badge">${esc(s.language)}</span>` : ''}
                     <span class="elevated-badge accent">${esc(BACKEND_LABEL[summary.backend] || summary.backend || 'unknown')}</span>
+                    ${summary.model ? `<span class="elevated-badge">${esc(summary.model)}</span>` : ''}
                     ${summary.level ? `<span class="elevated-badge">${esc(LEVEL_LABEL[summary.level] || summary.level)}</span>` : ''}
                 </div>
                 ${episode.audio_url ? `<audio class="ep-audio" controls preload="none" src="${esc(episode.audio_url)}"></audio>` : ''}
@@ -573,7 +574,6 @@ async function viewSummary(episodeId, summaryId) {
 
         <h2>Details</h2>
         <div class="muted small">
-            Model ${esc(summary.model)} ·
             ${summary.input_tokens ?? '?'} in / ${summary.output_tokens ?? '?'} out tokens ·
             generated ${esc(formatDate(summary.created_at))}
             · <a href="#/episode/${episode.id}/transcript">view transcript</a>
@@ -659,8 +659,8 @@ async function viewHistory(episodeId) {
                 <div class="elevated-row-title">${esc(s.data?.title || episode.title)}</div>
                 <div class="elevated-badges">
                     <span class="elevated-badge accent">${esc(BACKEND_LABEL[s.backend] || s.backend || 'unknown')}</span>
+                    ${s.model ? `<span class="elevated-badge">${esc(s.model)}</span>` : ''}
                     ${s.level ? `<span class="elevated-badge">${esc(LEVEL_LABEL[s.level] || s.level)}</span>` : ''}
-                    <span class="elevated-badge">${esc(s.model || '')}</span>
                     <span class="elevated-badge">${s.input_tokens ?? '?'} in / ${s.output_tokens ?? '?'} out</span>
                     <span class="elevated-badge">${esc(formatDate(s.created_at))}</span>
                 </div>
@@ -740,11 +740,12 @@ function renderCompareColumn({ episode, summary }) {
         <div class="row" style="justify-content:space-between">
             <div class="row">
                 <span class="elevated-badge accent">${esc(BACKEND_LABEL[summary.backend] || summary.backend || 'unknown')}</span>
+                ${summary.model ? `<span class="elevated-badge">${esc(summary.model)}</span>` : ''}
                 ${summary.level ? `<span class="elevated-badge">${esc(LEVEL_LABEL[summary.level] || summary.level)}</span>` : ''}
             </div>
             <span class="muted small">${summary.input_tokens ?? '?'} in / ${summary.output_tokens ?? '?'} out</span>
         </div>
-        <div class="muted small" style="margin-top:4px">${esc(summary.model || '')} · ${esc(formatDate(summary.created_at))}</div>
+        <div class="muted small" style="margin-top:4px">${esc(formatDate(summary.created_at))}</div>
 
         <h3 style="margin-top:14px">${esc(s.title || episode.title)}</h3>
         <div class="tldr">${esc(s.tldr)}</div>
@@ -1006,6 +1007,19 @@ async function viewAccount() {
         </div>`;
     };
 
+    const modelRow = (provider, label, models, current) => `
+        <div class="key-row">
+            <strong>${label}</strong>
+            <div class="row" style="margin-top:8px">
+                <select id="${provider}-model-select" class="form-select">
+                    ${models
+                        .map((m) => `<option value="${m.id}" ${m.id === current ? 'selected' : ''}>${esc(m.label)}</option>`)
+                        .join('')}
+                </select>
+                <button class="primary-btn" data-action="save-model" data-provider="${provider}">Save</button>
+            </div>
+        </div>`;
+
     const render = () => {
         app.innerHTML = `
             <h1>Account</h1>
@@ -1028,6 +1042,15 @@ async function viewAccount() {
 
             ${keyRow('claude', 'Claude', 'sk-ant-...')}
             ${keyRow('mistral', 'Mistral', 'sk-mis-...')}
+
+            <h2>Model</h2>
+            <p class="muted small">
+                Which model each backend uses to write the summary. A bigger model tends to do
+                better on long or nuanced episodes; a smaller one is faster and cheaper.
+            </p>
+
+            ${modelRow('claude', 'Claude', data.claudeModels, data.claudeModel)}
+            ${modelRow('mistral', 'Mistral', data.mistralModels, data.mistralModel)}
 
             <h2>Summary detail level</h2>
             <p class="muted small">
@@ -1063,6 +1086,31 @@ async function viewAccount() {
                 e.target.textContent = 'Save';
             }
         });
+
+        document.querySelectorAll('[data-action="save-model"]').forEach((btn) =>
+            btn.addEventListener('click', async () => {
+                const provider = btn.dataset.provider;
+                const value = document.getElementById(`${provider}-model-select`).value;
+                btn.disabled = true;
+                btn.textContent = 'Saving…';
+                try {
+                    await api('/account/models', {
+                        method: 'PUT',
+                        body: JSON.stringify({ [`${provider}Model`]: value })
+                    });
+                    data[`${provider}Model`] = value;
+                    btn.textContent = 'Saved';
+                    setTimeout(() => {
+                        btn.textContent = 'Save';
+                        btn.disabled = false;
+                    }, 1200);
+                } catch (err) {
+                    app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+                    btn.disabled = false;
+                    btn.textContent = 'Save';
+                }
+            })
+        );
 
         document.querySelectorAll('[data-action="save-key"]').forEach((btn) =>
             btn.addEventListener('click', async () => {
@@ -1232,6 +1280,7 @@ function renderLibraryEpisodes(showId, allItems) {
                             it.status === 'not_summarized'
                                 ? '<span class="elevated-badge warn">not summarized</span>'
                                 : `<span class="elevated-badge accent">${esc(BACKEND_LABEL[it.backend] || it.backend)}</span>
+                                   ${it.model ? `<span class="elevated-badge">${esc(it.model)}</span>` : ''}
                                    ${it.level ? `<span class="elevated-badge">${esc(LEVEL_LABEL[it.level] || it.level)}</span>` : ''}`
                         }
                     </div>

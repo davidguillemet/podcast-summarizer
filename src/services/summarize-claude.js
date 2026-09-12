@@ -9,6 +9,15 @@ import {
 
 export const MODEL = 'claude-opus-5';
 
+// Both models share the same request shape (adaptive thinking, `output_config.effort`,
+// JSON-schema structured output) — that's the criterion for this list, not just "recent".
+// Claude Haiku 4.5 is deliberately excluded: it's on the older enabled/budget_tokens
+// thinking API and doesn't support `effort`, so it would need a different request shape.
+export const MODELS = [
+    { id: 'claude-opus-5', label: 'Claude Opus 5 — best quality' },
+    { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 — faster, cheaper' }
+];
+
 // With adaptive thinking, max_tokens is a hard ceiling on thinking + final text combined,
 // and thinking length is non-deterministic — the same transcript can make the model think
 // a very different amount from one run to the next. A budget tuned per level (even a
@@ -23,14 +32,16 @@ const MAX_TOKENS = 64000;
  */
 export async function summarizeTranscript(
     transcriptText,
-    { episodeTitle, showTitle, apiKey, level = DEFAULT_SUMMARY_LEVEL, onStatus = () => {} } = {}
+    { episodeTitle, showTitle, apiKey, model, level = DEFAULT_SUMMARY_LEVEL, onStatus = () => {} } = {}
 ) {
     onStatus('Writing the summary…');
+
+    const chosenModel = MODELS.some((m) => m.id === model) ? model : MODEL;
 
     // A fresh client per call, since apiKey can differ per user — cheap, just config, no connection.
     const client = new Anthropic({ apiKey: apiKey || config.anthropicApiKey });
     const stream = client.beta.messages.stream({
-        model: MODEL,
+        model: chosenModel,
         max_tokens: MAX_TOKENS,
         thinking: { type: 'adaptive' },
         // Opus 5's safety classifiers can decline a request outright (HTTP 200 with
