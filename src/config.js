@@ -55,8 +55,7 @@ export const config = {
     // 'local' (Mistral Small via llama.cpp, free/offline)
     summarizer: (process.env.SUMMARIZER || 'claude').toLowerCase(),
     mistral: {
-        apiKey: process.env.MISTRAL_API_KEY || '',
-        model: process.env.MISTRAL_MODEL || 'mistral-large-latest'
+        apiKey: process.env.MISTRAL_API_KEY || ''
     },
     local: {
         modelFile: process.env.LOCAL_MODEL_FILE || 'Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf',

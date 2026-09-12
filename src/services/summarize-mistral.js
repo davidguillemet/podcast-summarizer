@@ -6,7 +6,7 @@ import {
     buildUserContent
 } from './summary-schema.js';
 
-export const MODEL = config.mistral.model;
+export const MODEL = 'mistral-large-latest';
 
 // Same chat-completions request shape for every Mistral model, so there's no compatibility
 // list to maintain here the way summarize-claude.js has to.

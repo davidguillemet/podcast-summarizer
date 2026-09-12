@@ -100,7 +100,6 @@ curl -fL -o data/models/Mistral-Small-3.2-24B-Instruct-2506-Q4_K_M.gguf \
 | `SUMMARIZER` | no | `claude` (default), `mistral` or `local`. Transcription is on-device either way. |
 | `ANTHROPIC_API_KEY` | no | Only needed if `SUMMARIZER=claude` and you want a shared/default key (see "Per-user API keys" below). Missing or still the `.env.example` placeholder just logs a boot warning, not a failure. |
 | `MISTRAL_API_KEY` | no | Same as `ANTHROPIC_API_KEY`, for `SUMMARIZER=mistral`. Get one at [console.mistral.ai](https://console.mistral.ai/api-keys). |
-| `MISTRAL_MODEL` | no | Default `mistral-large-latest`. |
 | `PODCASTINDEX_KEY` / `_SECRET` | no | Free from [podcastindex.org/api](https://podcastindex.org/api). Adds episode-level search and surfaces free publisher transcripts. Without it, iTunes only. |
 | `PORT` | no | Default `4300` — avoids the Firebase emulators (4000/5002/5003/9099/9199) and CRA (3000). |
 | `WHISPER_MODEL` | no | Default `large-v3-turbo`. `base`/`small` are much faster for testing. |
