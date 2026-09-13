@@ -111,6 +111,9 @@ ensureColumn('summaries', 'preferred', 'INTEGER NOT NULL DEFAULT 0');
 db.prepare("UPDATE summaries SET level = 'standard' WHERE level IS NULL").run();
 ensureColumn('jobs', 'backend', 'TEXT');
 ensureColumn('jobs', 'level', 'TEXT'); // resolved at job creation — see routes/jobs.js
+// Per-run model override — NULL means "use the account default for this backend" (see
+// resolveModel() in services/pipeline.js). No column for 'local', same as users.claude_model.
+ensureColumn('jobs', 'model', 'TEXT');
 ensureColumn('jobs', 'note', 'TEXT'); // human-readable sub-status, e.g. "Reading segment 2 of 4"
 ensureColumn('jobs', 'user_id', 'INTEGER REFERENCES users(id)');
 ensureColumn('shows', 'favorite', 'INTEGER NOT NULL DEFAULT 0');
@@ -129,6 +132,9 @@ ensureColumn('users', 'summary_level', "TEXT NOT NULL DEFAULT 'standard'");
 // allowed values; 'local' has no model concept, so there's no local_model column.
 ensureColumn('users', 'claude_model', 'TEXT');
 ensureColumn('users', 'mistral_model', 'TEXT');
+// Default provider for this user's new jobs — NULL means "no preference", falling back to
+// config.summarizer, same relationship level/summary_level has to DEFAULT_SUMMARY_LEVEL.
+ensureColumn('users', 'default_backend', 'TEXT');
 
 const now = () => new Date().toISOString();
 
@@ -242,13 +248,13 @@ export const getEpisode = (id) => selectEpisode.get(id);
 /* ------------------------------------------------------------------- jobs */
 
 const insertJob = db.prepare(`
-    INSERT INTO jobs (episode_id, status, stage, progress, backend, level, user_id, created_at, updated_at)
-    VALUES (?, 'queued', 'queued', 0, ?, ?, ?, ?, ?)
+    INSERT INTO jobs (episode_id, status, stage, progress, backend, level, model, user_id, created_at, updated_at)
+    VALUES (?, 'queued', 'queued', 0, ?, ?, ?, ?, ?, ?)
     RETURNING *
 `);
-export function createJob(episodeId, backend = null, userId = null, level = null) {
+export function createJob(episodeId, backend = null, userId = null, level = null, model = null) {
     const ts = now();
-    return insertJob.get(episodeId, backend, level, userId, ts, ts);
+    return insertJob.get(episodeId, backend, level, model, userId, ts, ts);
 }
 
 const selectJob = db.prepare('SELECT * FROM jobs WHERE id = ?');
@@ -455,6 +461,12 @@ const setSummaryLevelStmt = db.prepare('UPDATE users SET summary_level = ? WHERE
 export function setUserSummaryLevel(userId, level) {
     if (!SUMMARY_LEVELS.includes(level)) throw new Error(`Unknown summary level "${level}"`);
     setSummaryLevelStmt.run(level, userId);
+}
+
+const setDefaultBackendStmt = db.prepare('UPDATE users SET default_backend = ? WHERE id = ?');
+export function setUserDefaultBackend(userId, backend) {
+    if (!['claude', 'mistral', 'local'].includes(backend)) throw new Error(`Unknown backend "${backend}"`);
+    setDefaultBackendStmt.run(backend, userId);
 }
 
 const setPlanStmt = db.prepare('UPDATE users SET plan = ? WHERE username = ?');

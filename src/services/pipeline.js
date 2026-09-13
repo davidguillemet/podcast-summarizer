@@ -197,7 +197,7 @@ export async function runJob(jobId) {
             // The job owner's own key, if they've saved one for this backend — falls back to
             // the server's .env key inside the backend module when this is null.
             apiKey: resolveApiKey(job.user_id, backendName),
-            model: resolveModel(job.user_id, backendName),
+            model: job.model || resolveModel(job.user_id, backendName),
             episodeTitle: episode.title,
             showTitle: show?.title,
             // The local backend has long sub-steps (model load, per-segment notes);

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getUserById, setUserApiKey, setUserSummaryLevel, setUserModel } from '../db.js';
+import { getUserById, setUserApiKey, setUserSummaryLevel, setUserModel, setUserDefaultBackend } from '../db.js';
 import { encryptSecret } from '../services/auth.js';
 import { SUMMARY_LEVELS } from '../services/summary-schema.js';
 import { CLAUDE_MODEL, CLAUDE_MODELS, MISTRAL_MODEL, MISTRAL_MODELS } from '../services/summarize.js';
@@ -17,7 +17,8 @@ router.get('/account', (req, res) => {
         claudeModel: user.claude_model || CLAUDE_MODEL,
         mistralModel: user.mistral_model || MISTRAL_MODEL,
         claudeModels: CLAUDE_MODELS,
-        mistralModels: MISTRAL_MODELS
+        mistralModels: MISTRAL_MODELS,
+        defaultBackend: user.default_backend
     });
 });
 
@@ -28,6 +29,16 @@ router.put('/account/summary-level', (req, res) => {
         return res.status(400).json({ error: `level must be one of: ${SUMMARY_LEVELS.join(', ')}` });
     }
     setUserSummaryLevel(req.session.user_id, level);
+    res.json({ ok: true });
+});
+
+/** Body: { backend }. Default provider for this user's new jobs; overridable per run. */
+router.put('/account/default-backend', (req, res) => {
+    const { backend } = req.body ?? {};
+    if (!['claude', 'mistral', 'local'].includes(backend)) {
+        return res.status(400).json({ error: 'backend must be "claude", "mistral" or "local"' });
+    }
+    setUserDefaultBackend(req.session.user_id, backend);
     res.json({ ok: true });
 });
 

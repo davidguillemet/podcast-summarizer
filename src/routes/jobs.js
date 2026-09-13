@@ -18,6 +18,7 @@ import { enqueue, position, queueState } from '../queue.js';
 import { jobEvents, resolveApiKey } from '../services/pipeline.js';
 import { audioPathFor, removeIfExists } from '../services/audio.js';
 import { SUMMARY_LEVELS, DEFAULT_SUMMARY_LEVEL } from '../services/summary-schema.js';
+import { CLAUDE_MODELS, MISTRAL_MODELS } from '../services/summarize.js';
 import { config } from '../config.js';
 
 const router = Router();
@@ -28,6 +29,8 @@ const withQueue = (job) => (job ? { ...job, queuePosition: position(job.id) } : 
  * Start (or rejoin) a job for an episode. `backend` overrides SUMMARIZER for this run;
  * `level` overrides the user's account default detail level for this run only — the
  * resolved value (never null) is stored on the job so history/comparison can show it.
+ * `model` similarly overrides the user's account default model for this run only (claude/
+ * mistral only — 'local' has no model concept, so it's silently dropped for that backend).
  */
 router.post('/jobs', (req, res) => {
     const episodeId = Number(req.body?.episodeId);
@@ -46,10 +49,22 @@ router.post('/jobs', (req, res) => {
     const user = getUserById(req.session.user_id);
     const level = requestedLevel || user?.summary_level || DEFAULT_SUMMARY_LEVEL;
 
+    // Per-run model override — 'local' has no model concept, so it's only checked for claude/mistral.
+    const resolvedBackend = backend || config.summarizer;
+    const requestedModel = req.body?.model ?? null;
+    const MODELS_BY_BACKEND = { claude: CLAUDE_MODELS, mistral: MISTRAL_MODELS };
+    if (requestedModel && MODELS_BY_BACKEND[resolvedBackend]) {
+        const models = MODELS_BY_BACKEND[resolvedBackend];
+        if (!models.some((m) => m.id === requestedModel)) {
+            return res.status(400).json({ error: `model must be one of: ${models.map((m) => m.id).join(', ')}` });
+        }
+    }
+    const model = MODELS_BY_BACKEND[resolvedBackend] ? requestedModel : null;
+
     // Fail before transcribing, not after — a doomed job would otherwise burn minutes of
     // whisper time only to hit the same check again at the summarize step.
     try {
-        resolveApiKey(req.session.user_id, backend || config.summarizer);
+        resolveApiKey(req.session.user_id, resolvedBackend);
     } catch (err) {
         return res.status(403).json({ error: err.message });
     }
@@ -58,7 +73,7 @@ router.post('/jobs', (req, res) => {
     const active = getActiveJobForEpisode(episodeId);
     if (active) return res.json({ job: withQueue(active), reused: true });
 
-    const job = createJob(episodeId, backend, req.session.user_id, level);
+    const job = createJob(episodeId, backend, req.session.user_id, level, model);
     enqueue(job.id);
     res.status(201).json({ job: withQueue(getJob(job.id)), reused: false });
 });

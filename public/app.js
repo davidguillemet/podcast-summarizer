@@ -53,6 +53,7 @@ const session = {
     term: '',
     results: null,
     status: null,
+    account: null,
     backend: null,
     favoriteFeedUrls: new Set(),
     podcastsFilter: { favorites: true, transcribed: true }
@@ -73,8 +74,9 @@ function postFavorite(feedUrl, meta, favorite) {
     return api('/shows/favorite', { method: 'POST', body: JSON.stringify({ feedUrl, ...meta, favorite }) });
 }
 
-/** Which backend new jobs should use — defaults to the server's SUMMARIZER setting. */
-const currentBackend = () => session.backend || session.status?.summarizer || 'claude';
+/** Which backend new jobs should use — account default, then the server's SUMMARIZER setting. */
+const currentBackend = () =>
+    session.backend || session.account?.defaultBackend || session.status?.summarizer || 'claude';
 
 function backendPicker() {
     const available = session.status?.backends ?? {};
@@ -484,6 +486,15 @@ async function viewSummary(episodeId, summaryId) {
     const { episode, show, summary, transcript } = data;
     const s = summary.data;
 
+    /** Model options for the re-run row's Model select — 'local' has a single fixed model. */
+    const rerunModelOptions = (backend) => {
+        if (backend === 'local') return `<option value="">${esc(session.status?.localModel || 'local model')}</option>`;
+        const models = backend === 'claude' ? session.account?.claudeModels : session.account?.mistralModels;
+        const current = backend === 'claude' ? session.account?.claudeModel : session.account?.mistralModel;
+        return (models ?? []).map((m) => `<option value="${m.id}" ${m.id === current ? 'selected' : ''}>${esc(m.label)}</option>`).join('');
+    };
+    const rerunDefaultBackend = currentBackend();
+
     app.innerHTML = `
         <a class="small back-link" href="#/show/${show.id}">${backIcon()}${esc(show.title)}</a>
         <div class="spread" style="margin-top:14px">
@@ -505,27 +516,33 @@ async function viewSummary(episodeId, summaryId) {
                 <a class="small" href="#/episode/${episode.id}/history">All runs</a>
                 <button class="fav-btn ${summary.preferred ? 'active' : ''}" id="preferred"
                         title="${summary.preferred ? 'Unset as preferred' : 'Set as preferred'}">${summary.preferred ? '★' : '☆'}</button>
-                <div class="select-pill-group">
-                    <label>Detail
-                        <select id="rerun-level" title="Detail level for the re-run">
-                            ${LEVEL_ORDER.map(
-                                (l) =>
-                                    `<option value="${l}" ${l === (summary.level || currentLevel()) ? 'selected' : ''}>${esc(LEVEL_LABEL[l])}</option>`
-                            ).join('')}
-                        </select>
-                    </label>
-                </div>
-                ${usableBackends()
-                    .map(
-                        (b) =>
-                            `<button class="quiet-btn" data-action="rerun" data-backend="${b}">${
-                                b === summary.backend ? 'Re-run' : `Re-run with ${esc(BACKEND_LABEL[b])}`
-                            }</button>`
-                    )
-                    .join('')}
                 <button class="quiet-btn" id="copy">Copy Markdown</button>
                 <button class="quiet-btn danger" id="delete">${trashIcon()}<span class="btn-label">Delete</span></button>
             </div>
+        </div>
+
+        <div class="select-pill-group" style="margin-top:12px">
+            <label>Provider
+                <select id="rerun-backend">
+                    ${usableBackends()
+                        .map((b) => `<option value="${b}" ${b === rerunDefaultBackend ? 'selected' : ''}>${esc(BACKEND_LABEL[b])}</option>`)
+                        .join('')}
+                </select>
+            </label>
+            <label>Model
+                <select id="rerun-model" ${rerunDefaultBackend === 'local' ? 'disabled' : ''}>
+                    ${rerunModelOptions(rerunDefaultBackend)}
+                </select>
+            </label>
+            <label>Detail
+                <select id="rerun-level">
+                    ${LEVEL_ORDER.map(
+                        (l) =>
+                            `<option value="${l}" ${l === (session.account?.summaryLevel || currentLevel()) ? 'selected' : ''}>${esc(LEVEL_LABEL[l])}</option>`
+                    ).join('')}
+                </select>
+            </label>
+            <button class="primary-btn" id="rerun-run">Run</button>
         </div>
 
         <h2>Summary</h2>
@@ -624,26 +641,33 @@ async function viewSummary(episodeId, summaryId) {
         }
     });
 
-    document.querySelectorAll('[data-action="rerun"]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-            const target = btn.dataset.backend;
-            const level = document.getElementById('rerun-level').value;
-            const label = btn.textContent;
-            btn.disabled = true;
-            btn.textContent = 'Starting…';
-            try {
-                // The transcript is cached, so this re-runs only the model call.
-                const res = await api('/jobs', {
-                    method: 'POST',
-                    body: JSON.stringify({ episodeId: episode.id, backend: target, level })
-                });
-                location.hash = `#/job/${res.job.id}`;
-            } catch (err) {
-                app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
-                btn.disabled = false;
-                btn.textContent = label;
-            }
-        });
+    document.getElementById('rerun-backend').addEventListener('change', (e) => {
+        const backend = e.target.value;
+        const modelSelect = document.getElementById('rerun-model');
+        modelSelect.disabled = backend === 'local';
+        modelSelect.innerHTML = rerunModelOptions(backend);
+    });
+
+    document.getElementById('rerun-run').addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        const backend = document.getElementById('rerun-backend').value;
+        const level = document.getElementById('rerun-level').value;
+        const model = backend === 'local' ? undefined : document.getElementById('rerun-model').value;
+        const label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Starting…';
+        try {
+            // The transcript is cached, so this re-runs only the model call.
+            const res = await api('/jobs', {
+                method: 'POST',
+                body: JSON.stringify({ episodeId: episode.id, backend, level, model })
+            });
+            location.hash = `#/job/${res.job.id}`;
+        } catch (err) {
+            app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+            btn.disabled = false;
+            btn.textContent = label;
+        }
     });
 }
 
@@ -1083,6 +1107,20 @@ async function viewAccount() {
             ${keyRow('claude', 'Claude', 'sk-ant-...')}
             ${keyRow('mistral', 'Mistral', 'sk-mis-...')}
 
+            <h2>Default provider</h2>
+            <p class="muted small">
+                Which backend new summaries use unless overridden per run.
+            </p>
+            <div class="row" style="margin-top:8px">
+                <select id="default-backend-select" class="form-select">
+                    ${BACKEND_ORDER.map(
+                        (b) =>
+                            `<option value="${b}" ${b === (data.defaultBackend || session.status?.summarizer || 'claude') ? 'selected' : ''}>${esc(BACKEND_LABEL[b])}</option>`
+                    ).join('')}
+                </select>
+                <button class="primary-btn" id="save-default-backend">Save</button>
+            </div>
+
             <h2>Model</h2>
             <p class="muted small">
                 Which model each backend uses to write the summary. A bigger model tends to do
@@ -1115,6 +1153,27 @@ async function viewAccount() {
                 await api('/account/summary-level', { method: 'PUT', body: JSON.stringify({ level }) });
                 data.summaryLevel = level;
                 session.status = await api('/status').catch(() => session.status);
+                session.account = await api('/account').catch(() => session.account);
+                e.target.textContent = 'Saved';
+                setTimeout(() => {
+                    e.target.textContent = 'Save';
+                    e.target.disabled = false;
+                }, 1200);
+            } catch (err) {
+                app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+                e.target.disabled = false;
+                e.target.textContent = 'Save';
+            }
+        });
+
+        document.getElementById('save-default-backend')?.addEventListener('click', async (e) => {
+            const backend = document.getElementById('default-backend-select').value;
+            e.target.disabled = true;
+            e.target.textContent = 'Saving…';
+            try {
+                await api('/account/default-backend', { method: 'PUT', body: JSON.stringify({ backend }) });
+                data.defaultBackend = backend;
+                session.account = await api('/account').catch(() => session.account);
                 e.target.textContent = 'Saved';
                 setTimeout(() => {
                     e.target.textContent = 'Save';
@@ -1139,6 +1198,7 @@ async function viewAccount() {
                         body: JSON.stringify({ [`${provider}Model`]: value })
                     });
                     data[`${provider}Model`] = value;
+                    session.account = await api('/account').catch(() => session.account);
                     btn.textContent = 'Saved';
                     setTimeout(() => {
                         btn.textContent = 'Save';
@@ -1485,6 +1545,7 @@ async function boot() {
     } catch {
         statusLine.textContent = 'server unreachable';
     }
+    session.account = await api('/account').catch(() => null);
     try {
         const { shows } = await api('/shows');
         session.favoriteFeedUrls = new Set(
