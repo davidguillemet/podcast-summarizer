@@ -503,6 +503,8 @@ async function viewSummary(episodeId, summaryId) {
             </div>
             <div class="row" style="align-items:center">
                 <a class="small" href="#/episode/${episode.id}/history">All runs</a>
+                <button class="fav-btn ${summary.preferred ? 'active' : ''}" id="preferred"
+                        title="${summary.preferred ? 'Unset as preferred' : 'Set as preferred'}">${summary.preferred ? '★' : '☆'}</button>
                 <div class="select-pill-group">
                     <label>Detail
                         <select id="rerun-level" title="Detail level for the re-run">
@@ -579,6 +581,26 @@ async function viewSummary(episodeId, summaryId) {
             · <a href="#/episode/${episode.id}/transcript">view transcript</a>
         </div>
     `;
+
+    document.getElementById('preferred').addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        const nowPreferred = !summary.preferred;
+        btn.disabled = true;
+        try {
+            await api(`/summaries/${summary.id}/preferred`, {
+                method: 'PUT',
+                body: JSON.stringify({ preferred: nowPreferred })
+            });
+            summary.preferred = nowPreferred;
+            btn.classList.toggle('active', nowPreferred);
+            btn.textContent = nowPreferred ? '★' : '☆';
+            btn.title = nowPreferred ? 'Unset as preferred' : 'Set as preferred';
+        } catch (err) {
+            app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+        } finally {
+            btn.disabled = false;
+        }
+    });
 
     document.getElementById('copy').addEventListener('click', async (e) => {
         await navigator.clipboard.writeText(toMarkdown(s, episode, show));
@@ -666,6 +688,8 @@ async function viewHistory(episodeId) {
                 </div>
             </div>
             <div class="elevated-actions">
+                <button class="fav-btn ${s.preferred ? 'active' : ''}" data-action="preferred" data-id="${s.id}"
+                        title="${s.preferred ? 'Unset as preferred' : 'Set as preferred'}">${s.preferred ? '★' : '☆'}</button>
                 <button class="quiet-btn" data-action="view" data-id="${s.id}">View</button>
                 <button class="quiet-btn danger" data-action="delete" data-id="${s.id}">${trashIcon()}<span class="btn-label">Delete</span></button>
             </div>
@@ -692,6 +716,22 @@ async function viewHistory(episodeId) {
         const { action, id } = btn.dataset;
 
         if (action === 'view') return void (location.hash = `#/episode/${episode.id}/summary/${id}`);
+
+        if (action === 'preferred') {
+            const nowPreferred = btn.textContent !== '★';
+            btn.disabled = true;
+            try {
+                await api(`/summaries/${id}/preferred`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ preferred: nowPreferred })
+                });
+                viewHistory(episodeId);
+            } catch (err) {
+                app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+                btn.disabled = false;
+            }
+            return;
+        }
 
         if (!confirm('Delete this summary? The transcript is kept, so you can re-summarize later.')) return;
         const label = btn.querySelector('.btn-label');

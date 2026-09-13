@@ -8,6 +8,7 @@ import {
     getSummaryById,
     listSummaries,
     deleteSummary,
+    setSummaryPreferred,
     getTranscript,
     deleteTranscript,
     createJob,
@@ -162,6 +163,15 @@ router.delete('/summaries/:id', (req, res) => {
     if (!summary) return res.status(404).json({ error: 'Summary not found' });
     deleteSummary(summary.id);
     res.json({ ok: true, episodeId: summary.episode_id });
+});
+
+/** Marks/unmarks a summary as the episode's default view. Only one can be preferred per
+ *  episode — setting one clears any previous preferred summary for that episode. */
+router.put('/summaries/:id/preferred', (req, res) => {
+    const summary = getSummaryById(Number(req.params.id));
+    if (!summary) return res.status(404).json({ error: 'Summary not found' });
+    const updated = setSummaryPreferred(summary.id, req.body.preferred !== false);
+    res.json({ ok: true, summary: { ...updated, data: JSON.parse(updated.json), json: undefined } });
 });
 
 /** `?format=json` returns episode/show context alongside the text, for the in-app reading view. */

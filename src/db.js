@@ -101,6 +101,9 @@ function ensureColumn(table, column, definition) {
 }
 ensureColumn('summaries', 'backend', 'TEXT');
 ensureColumn('summaries', 'level', 'TEXT'); // 'brief' | 'standard' | 'detailed'
+// User-chosen default among an episode's summaries — see setSummaryPreferred(). Only one row
+// per episode_id ever has this set to 1; enforced in application code, not a DB constraint.
+ensureColumn('summaries', 'preferred', 'INTEGER NOT NULL DEFAULT 0');
 // Rows written before this column existed were all produced with what is now called
 // 'standard' — the original hardcoded prompt/schema text is byte-for-byte what 'standard'
 // still says. Backfill them so the UI's level badge doesn't just silently disappear for
@@ -340,8 +343,9 @@ const selectSummaryHistory = db.prepare(
 );
 export const listSummaries = (episodeId) => selectSummaryHistory.all(episodeId);
 
+/** The summary shown by default: the user's preferred pick, or else the newest run. */
 const selectSummary = db.prepare(
-    'SELECT * FROM summaries WHERE episode_id = ? ORDER BY created_at DESC LIMIT 1'
+    'SELECT * FROM summaries WHERE episode_id = ? ORDER BY preferred DESC, created_at DESC LIMIT 1'
 );
 export const getSummary = (episodeId) => selectSummary.get(episodeId);
 
@@ -350,6 +354,19 @@ export const getSummaryById = (id) => selectSummaryById.get(id);
 
 const deleteSummaryStmt = db.prepare('DELETE FROM summaries WHERE id = ?');
 export const deleteSummary = (id) => deleteSummaryStmt.run(id).changes > 0;
+
+const clearPreferredForEpisode = db.prepare('UPDATE summaries SET preferred = 0 WHERE episode_id = ?');
+const setPreferredFlagStmt = db.prepare('UPDATE summaries SET preferred = ? WHERE id = ?');
+
+/** Marks (or unmarks) a summary as the episode's default. Setting one clears any other
+ *  preferred summary for the same episode, since only one can hold the flag at a time. */
+export const setSummaryPreferred = db.transaction((id, preferred) => {
+    const summary = selectSummaryById.get(id);
+    if (!summary) return null;
+    if (preferred) clearPreferredForEpisode.run(summary.episode_id);
+    setPreferredFlagStmt.run(preferred ? 1 : 0, id);
+    return selectSummaryById.get(id);
+});
 
 /**
  * Rooted at transcripts, not summaries, so an episode whose only summary was deleted still
@@ -366,7 +383,10 @@ const selectLibrary = db.prepare(`
       FROM transcripts t
       JOIN episodes e  ON e.id = t.episode_id
       JOIN shows sh    ON sh.id = e.show_id
- LEFT JOIN summaries s ON s.id = (SELECT MAX(s2.id) FROM summaries s2 WHERE s2.episode_id = t.episode_id)
+ LEFT JOIN summaries s ON s.id = (
+                SELECT s2.id FROM summaries s2 WHERE s2.episode_id = t.episode_id
+                ORDER BY s2.preferred DESC, s2.id DESC LIMIT 1
+            )
      ORDER BY created_at DESC
 `);
 export const listLibrary = () => selectLibrary.all();
