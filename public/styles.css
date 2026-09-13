@@ -554,7 +554,7 @@ ul.points li { margin-bottom: 7px; }
 
 .back-link { display: inline-flex; align-items: center; }
 
-.select-pill-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.select-pill-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .select-pill-group label {
     display: flex;
     align-items: center;
@@ -586,6 +586,48 @@ ul.points li { margin-bottom: 7px; }
     background-repeat: no-repeat;
 }
 .select-pill-group select:focus { outline: none; }
+
+.duplicate-warning {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(229, 181, 103, 0.16);
+    color: var(--warn);
+    font-weight: 700;
+    font-size: 13px;
+    cursor: help;
+}
+.duplicate-warning[hidden] { display: none; }
+/* A native title tooltip is too unreliable (slow, OS-dependent) for a hint this small —
+   draw our own so it appears instantly and stays legible on narrow screens. */
+.duplicate-warning::after {
+    content: attr(aria-label);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text);
+    color: var(--surface);
+    padding: 5px 9px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 400;
+    text-align: center;
+    max-width: 220px;
+    white-space: normal;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+    z-index: 20;
+}
+.duplicate-warning:hover::after,
+.duplicate-warning:focus-visible::after {
+    opacity: 1;
+}
 
 /* ----------------------------------------------------------------- mobile */
 /* .spread and .episode assume side-by-side space for a title and a button

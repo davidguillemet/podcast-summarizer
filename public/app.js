@@ -486,6 +486,17 @@ async function viewSummary(episodeId, summaryId) {
     const { episode, show, summary, transcript } = data;
     const s = summary.data;
 
+    // 'local' has no user-facing model choice, so two local runs always count as the same
+    // configuration regardless of which local model file actually produced them.
+    const comboKey = (backend, level, model) => `${backend}|${level}|${backend === 'local' ? '' : model || ''}`;
+    let existingCombos = new Set();
+    try {
+        const { summaries: allRuns } = await api(`/episodes/${episode.id}/summaries`);
+        existingCombos = new Set(allRuns.map((r) => comboKey(r.backend, r.level, r.model)));
+    } catch {
+        /* the duplicate-run hint just won't show; not worth blocking the page over */
+    }
+
     /** Model options for the re-run row's Model select — 'local' has a single fixed model. */
     const rerunModelOptions = (backend) => {
         if (backend === 'local') return `<option value="">${esc(session.status?.localModel || 'local model')}</option>`;
@@ -544,6 +555,8 @@ async function viewSummary(episodeId, summaryId) {
                 </select>
             </label>
             <button class="primary-btn" id="rerun-run">Run</button>
+            <span id="rerun-duplicate" class="duplicate-warning" tabindex="0"
+                  aria-label="A summary with this configuration already exists" hidden>!</span>
         </div>
 
         <h2>Summary</h2>
@@ -642,12 +655,23 @@ async function viewSummary(episodeId, summaryId) {
         }
     });
 
+    const updateDuplicateWarning = () => {
+        const backend = document.getElementById('rerun-backend').value;
+        const level = document.getElementById('rerun-level').value;
+        const model = document.getElementById('rerun-model').value;
+        document.getElementById('rerun-duplicate').hidden = !existingCombos.has(comboKey(backend, level, model));
+    };
+
     document.getElementById('rerun-backend').addEventListener('change', (e) => {
         const backend = e.target.value;
         const modelSelect = document.getElementById('rerun-model');
         modelSelect.disabled = backend === 'local';
         modelSelect.innerHTML = rerunModelOptions(backend);
+        updateDuplicateWarning();
     });
+    document.getElementById('rerun-model').addEventListener('change', updateDuplicateWarning);
+    document.getElementById('rerun-level').addEventListener('change', updateDuplicateWarning);
+    updateDuplicateWarning();
 
     document.getElementById('rerun-run').addEventListener('click', async (e) => {
         const btn = e.currentTarget;
