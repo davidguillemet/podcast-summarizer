@@ -581,7 +581,7 @@ ul.points li { margin-bottom: 7px; }
     background-image:
         linear-gradient(45deg, transparent 50%, var(--muted) 50%),
         linear-gradient(135deg, var(--muted) 50%, transparent 50%);
-    background-position: right 2px top 60%, right 6px top 60%;
+    background-position: right 6px top 60%, right 2px top 60%;
     background-size: 5px 5px, 5px 5px;
     background-repeat: no-repeat;
 }

@@ -60,7 +60,7 @@ const session = {
 };
 let activeStream = null;
 
-const BACKEND_LABEL = { claude: 'Claude', mistral: 'Mistral (remote)', local: 'Mistral (local)' };
+const BACKEND_LABEL = { claude: 'Claude', mistral: 'Mistral', local: 'Mistral (local)' };
 const BACKEND_ORDER = ['claude', 'mistral', 'local'];
 
 const LEVEL_LABEL = { brief: 'Brief', standard: 'Standard', detailed: 'Detailed' };
@@ -501,16 +501,17 @@ async function viewSummary(episodeId, summaryId) {
             <div>
                 <h1>${esc(s.title || episode.title)}</h1>
                 <div class="muted small">${esc(episode.title)}</div>
+                ${episode.audio_url ? `<audio class="ep-audio" controls preload="none" src="${esc(episode.audio_url)}"></audio>` : ''}
                 <div class="meta-line">
                     <span class="elevated-badge">${esc(formatDate(episode.published_at))}</span>
                     <span class="elevated-badge">${formatDuration(transcript?.duration_sec || episode.duration_sec)}</span>
-                    <span class="elevated-badge">${esc(transcript?.source === 'publisher' ? 'publisher transcript' : 'whisper')}</span>
                     ${s.language ? `<span class="elevated-badge">${esc(s.language)}</span>` : ''}
+                </div>
+                <div class="meta-line">
                     <span class="elevated-badge accent">${esc(BACKEND_LABEL[summary.backend] || summary.backend || 'unknown')}</span>
                     ${summary.model ? `<span class="elevated-badge">${esc(summary.model)}</span>` : ''}
                     ${summary.level ? `<span class="elevated-badge">${esc(LEVEL_LABEL[summary.level] || summary.level)}</span>` : ''}
                 </div>
-                ${episode.audio_url ? `<audio class="ep-audio" controls preload="none" src="${esc(episode.audio_url)}"></audio>` : ''}
             </div>
             <div class="row" style="align-items:center">
                 <a class="small" href="#/episode/${episode.id}/history">All runs</a>
@@ -522,20 +523,20 @@ async function viewSummary(episodeId, summaryId) {
         </div>
 
         <div class="select-pill-group" style="margin-top:12px">
-            <label>Provider
-                <select id="rerun-backend">
+            <label>
+                <select id="rerun-backend" title="Provider" aria-label="Provider">
                     ${usableBackends()
                         .map((b) => `<option value="${b}" ${b === rerunDefaultBackend ? 'selected' : ''}>${esc(BACKEND_LABEL[b])}</option>`)
                         .join('')}
                 </select>
             </label>
-            <label>Model
-                <select id="rerun-model" ${rerunDefaultBackend === 'local' ? 'disabled' : ''}>
+            <label>
+                <select id="rerun-model" title="Model" aria-label="Model" ${rerunDefaultBackend === 'local' ? 'disabled' : ''}>
                     ${rerunModelOptions(rerunDefaultBackend)}
                 </select>
             </label>
-            <label>Detail
-                <select id="rerun-level">
+            <label>
+                <select id="rerun-level" title="Detail level" aria-label="Detail level">
                     ${LEVEL_ORDER.map(
                         (l) =>
                             `<option value="${l}" ${l === (session.account?.summaryLevel || currentLevel()) ? 'selected' : ''}>${esc(LEVEL_LABEL[l])}</option>`
