@@ -9,6 +9,7 @@ import {
     listSummaries,
     deleteSummary,
     setSummaryPreferred,
+    setSummaryReadChapters,
     getTranscript,
     deleteTranscript,
     createJob,
@@ -125,7 +126,9 @@ function summaryDetail(episode, summary) {
         summary: {
             ...summary,
             data: JSON.parse(summary.json),
-            json: undefined
+            json: undefined,
+            readChapters: JSON.parse(summary.read_chapters || '[]'),
+            read_chapters: undefined
         },
         transcript: transcript
             ? {
@@ -167,7 +170,9 @@ router.get('/episodes/:id/summaries', (req, res) => {
         summaries: listSummaries(episodeId).map((s) => ({
             ...s,
             data: JSON.parse(s.json),
-            json: undefined
+            json: undefined,
+            readChapters: JSON.parse(s.read_chapters || '[]'),
+            read_chapters: undefined
         }))
     });
 });
@@ -186,7 +191,35 @@ router.put('/summaries/:id/preferred', (req, res) => {
     const summary = getSummaryById(Number(req.params.id));
     if (!summary) return res.status(404).json({ error: 'Summary not found' });
     const updated = setSummaryPreferred(summary.id, req.body.preferred !== false);
-    res.json({ ok: true, summary: { ...updated, data: JSON.parse(updated.json), json: undefined } });
+    res.json({
+        ok: true,
+        summary: {
+            ...updated,
+            data: JSON.parse(updated.json),
+            json: undefined,
+            readChapters: JSON.parse(updated.read_chapters || '[]'),
+            read_chapters: undefined
+        }
+    });
+});
+
+/** Replaces the set of chapter indices marked read for a summary — persisted server-side
+ *  (like `preferred`) so it survives across devices/browsers, not just this one. */
+router.put('/summaries/:id/read-chapters', (req, res) => {
+    const summary = getSummaryById(Number(req.params.id));
+    if (!summary) return res.status(404).json({ error: 'Summary not found' });
+    const indices = Array.isArray(req.body.readChapters) ? req.body.readChapters.filter(Number.isInteger) : [];
+    const updated = setSummaryReadChapters(summary.id, indices);
+    res.json({
+        ok: true,
+        summary: {
+            ...updated,
+            data: JSON.parse(updated.json),
+            json: undefined,
+            readChapters: JSON.parse(updated.read_chapters || '[]'),
+            read_chapters: undefined
+        }
+    });
 });
 
 /** `?format=json` returns episode/show context alongside the text, for the in-app reading view. */

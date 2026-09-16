@@ -485,6 +485,9 @@ async function viewSummary(episodeId, summaryId) {
 
     const { episode, show, summary, transcript } = data;
     const s = summary.data;
+    // Server-persisted per-summary — see setSummaryReadChapters() in db.js. Expand/collapse
+    // itself is not persisted, only this flag, which decides the initial collapsed state.
+    const readChapters = new Set(summary.readChapters || []);
 
     // 'local' has no user-facing model choice, so two local runs always count as the same
     // configuration regardless of which local model file actually produced them.
@@ -564,13 +567,22 @@ async function viewSummary(episodeId, summaryId) {
 
         ${
             s.chapters?.length
-                ? `<h2>Chapters</h2><div>${s.chapters
-                      .map(
-                          (c) => `<div class="chapter">
-                            <div class="ts">${esc(c.start)}</div>
-                            <div><h3>${esc(c.title)}</h3><div class="muted small">${esc(c.summary)}</div></div>
-                          </div>`
-                      )
+                ? `<h2>Chapters</h2><div class="chapters">${s.chapters
+                      .map((c, i) => {
+                          const read = readChapters.has(i);
+                          return `<div class="chapter ${read ? 'collapsed' : ''}" data-index="${i}">
+                            <div class="chapter-header">
+                                <input type="checkbox" class="chapter-read-checkbox" data-chapter-read="${i}"
+                                       ${read ? 'checked' : ''} title="Mark chapter as read" />
+                                <div class="ts">${esc(c.start)}</div>
+                                <button type="button" class="chapter-toggle" data-chapter-toggle="${i}">
+                                    <h3>${esc(c.title)}</h3>
+                                    <span class="chapter-chevron">${chevronIcon()}</span>
+                                </button>
+                            </div>
+                            <div class="muted small chapter-body">${esc(c.summary)}</div>
+                          </div>`;
+                      })
                       .join('')}</div>`
                 : ''
         }
@@ -631,6 +643,38 @@ async function viewSummary(episodeId, summaryId) {
         } finally {
             btn.disabled = false;
         }
+    });
+
+    document.querySelectorAll('[data-chapter-toggle]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            btn.closest('.chapter').classList.toggle('collapsed');
+        });
+    });
+
+    document.querySelectorAll('[data-chapter-read]').forEach((checkbox) => {
+        checkbox.addEventListener('change', async (e) => {
+            const index = Number(e.target.dataset.chapterRead);
+            const read = e.target.checked;
+            const chapterEl = e.target.closest('.chapter');
+            chapterEl.classList.toggle('collapsed', read);
+            if (read) readChapters.add(index);
+            else readChapters.delete(index);
+            e.target.disabled = true;
+            try {
+                await api(`/summaries/${summary.id}/read-chapters`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ readChapters: [...readChapters] })
+                });
+            } catch (err) {
+                e.target.checked = !read;
+                chapterEl.classList.toggle('collapsed', !read);
+                if (read) readChapters.delete(index);
+                else readChapters.add(index);
+                app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+            } finally {
+                e.target.disabled = false;
+            }
+        });
     });
 
     document.getElementById('copy').addEventListener('click', async (e) => {
@@ -1315,6 +1359,9 @@ const backIcon = () =>
 
 const trashIcon = () =>
     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>';
+
+const chevronIcon = () =>
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
 
 async function viewLibrary(showIdParam) {
     app.innerHTML = '<div class="loading">Loading library…</div>';

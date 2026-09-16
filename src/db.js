@@ -104,6 +104,9 @@ ensureColumn('summaries', 'level', 'TEXT'); // 'brief' | 'standard' | 'detailed'
 // User-chosen default among an episode's summaries — see setSummaryPreferred(). Only one row
 // per episode_id ever has this set to 1; enforced in application code, not a DB constraint.
 ensureColumn('summaries', 'preferred', 'INTEGER NOT NULL DEFAULT 0');
+// JSON array of chapter indices the user has marked read, e.g. "[0,2]" — per-summary, same
+// reasoning as `preferred`: this is user state about a specific run, not derivable from it.
+ensureColumn('summaries', 'read_chapters', "TEXT NOT NULL DEFAULT '[]'");
 // Rows written before this column existed were all produced with what is now called
 // 'standard' — the original hardcoded prompt/schema text is byte-for-byte what 'standard'
 // still says. Backfill them so the UI's level badge doesn't just silently disappear for
@@ -373,6 +376,16 @@ export const setSummaryPreferred = db.transaction((id, preferred) => {
     setPreferredFlagStmt.run(preferred ? 1 : 0, id);
     return selectSummaryById.get(id);
 });
+
+const setReadChaptersStmt = db.prepare('UPDATE summaries SET read_chapters = ? WHERE id = ?');
+
+/** Replaces the full set of chapter indices marked read for a summary. */
+export function setSummaryReadChapters(id, indices) {
+    const summary = selectSummaryById.get(id);
+    if (!summary) return null;
+    setReadChaptersStmt.run(JSON.stringify(indices), id);
+    return selectSummaryById.get(id);
+}
 
 /**
  * Rooted at transcripts, not summaries, so an episode whose only summary was deleted still

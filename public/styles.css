@@ -291,12 +291,68 @@ button.fav-btn.active { color: var(--warn); }
 }
 
 .chapter {
-    display: flex;
-    gap: 14px;
     padding: 12px 0;
     border-bottom: 1px solid var(--border);
 }
 .chapter:last-child { border-bottom: none; }
+
+.chapter-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.chapter-read-checkbox {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--accent);
+}
+
+.chapter-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.chapter-toggle h3 { margin: 0; }
+
+.chapter-chevron {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+    transition: transform 0.15s ease, background 0.15s ease;
+}
+.chapter-toggle:hover .chapter-chevron,
+.chapter-toggle:focus-visible .chapter-chevron {
+    background: var(--accent);
+    color: var(--surface);
+}
+.chapter.collapsed .chapter-chevron { transform: rotate(-90deg); }
+
+.chapter-body {
+    margin-top: 8px;
+    margin-left: 30px;
+}
+.chapter.collapsed .chapter-body { display: none; }
+
 .ts {
     font-variant-numeric: tabular-nums;
     font-weight: 600;
