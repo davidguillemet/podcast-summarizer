@@ -571,14 +571,16 @@ async function viewSummary(episodeId, summaryId) {
                       .map((c, i) => {
                           const read = readChapters.has(i);
                           return `<div class="chapter ${read ? 'collapsed' : ''}" data-index="${i}">
-                            <div class="chapter-header">
-                                <input type="checkbox" class="chapter-read-checkbox" data-chapter-read="${i}"
-                                       ${read ? 'checked' : ''} title="Mark chapter as read" />
-                                <div class="ts">${esc(c.start)}</div>
-                                <button type="button" class="chapter-toggle" data-chapter-toggle="${i}">
-                                    <h3>${esc(c.title)}</h3>
+                            <div class="chapter-header" data-chapter-toggle="${i}">
+                                <div class="chapter-meta">
+                                    <div class="ts">${esc(c.start)}</div>
                                     <span class="chapter-chevron">${chevronIcon()}</span>
-                                </button>
+                                </div>
+                                <div class="chapter-title-row">
+                                    <input type="checkbox" class="chapter-read-checkbox" data-chapter-read="${i}"
+                                           ${read ? 'checked' : ''} title="Mark chapter as read" />
+                                    <h3>${esc(c.title)}</h3>
+                                </div>
                             </div>
                             <div class="muted small chapter-body">${esc(c.summary)}</div>
                           </div>`;
@@ -645,9 +647,10 @@ async function viewSummary(episodeId, summaryId) {
         }
     });
 
-    document.querySelectorAll('[data-chapter-toggle]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-            btn.closest('.chapter').classList.toggle('collapsed');
+    document.querySelectorAll('[data-chapter-toggle]').forEach((header) => {
+        header.addEventListener('click', (e) => {
+            if (e.target.closest('.chapter-read-checkbox')) return;
+            header.closest('.chapter').classList.toggle('collapsed');
         });
     });
 

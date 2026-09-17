@@ -298,35 +298,32 @@ button.fav-btn.active { color: var(--warn); }
 
 .chapter-header {
     display: flex;
-    align-items: center;
-    gap: 14px;
+    flex-direction: column;
+    gap: 8px;
+    cursor: pointer;
 }
+
+.chapter-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.chapter-title-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+.chapter-title-row h3 { margin: 0; }
 
 .chapter-read-checkbox {
     flex-shrink: 0;
     width: 16px;
     height: 16px;
+    margin-top: 3px;
     cursor: pointer;
     accent-color: var(--accent);
 }
-
-.chapter-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    flex: 1;
-    min-width: 0;
-    background: none;
-    border: none;
-    padding: 0;
-    margin: 0;
-    font: inherit;
-    color: inherit;
-    text-align: left;
-    cursor: pointer;
-}
-.chapter-toggle h3 { margin: 0; }
 
 .chapter-chevron {
     flex-shrink: 0;
@@ -340,8 +337,8 @@ button.fav-btn.active { color: var(--warn); }
     color: var(--accent);
     transition: transform 0.15s ease, background 0.15s ease;
 }
-.chapter-toggle:hover .chapter-chevron,
-.chapter-toggle:focus-visible .chapter-chevron {
+.chapter-header:hover .chapter-chevron,
+.chapter-header:focus-visible .chapter-chevron {
     background: var(--accent);
     color: var(--surface);
 }
@@ -349,7 +346,7 @@ button.fav-btn.active { color: var(--warn); }
 
 .chapter-body {
     margin-top: 8px;
-    margin-left: 30px;
+    margin-left: 26px;
 }
 .chapter.collapsed .chapter-body { display: none; }
 
