@@ -346,7 +346,8 @@ async function viewShow(showId) {
                     ${e.transcript_url ? '<span class="elevated-badge accent">publisher transcript</span>' : ''}
                     ${
                         e.summary_id
-                            ? '<span class="elevated-badge done">summarized</span>'
+                            ? `<span class="elevated-badge done">summarized</span>
+                               <span class="elevated-badge">${e.summary_count} run${e.summary_count === 1 ? '' : 's'}</span>`
                             : e.transcript_source
                               ? '<span class="elevated-badge warn">transcribed</span>'
                               : ''
@@ -493,9 +494,11 @@ async function viewSummary(episodeId, summaryId) {
     // configuration regardless of which local model file actually produced them.
     const comboKey = (backend, level, model) => `${backend}|${level}|${backend === 'local' ? '' : model || ''}`;
     let existingCombos = new Set();
+    let runCount = null;
     try {
         const { summaries: allRuns } = await api(`/episodes/${episode.id}/summaries`);
         existingCombos = new Set(allRuns.map((r) => comboKey(r.backend, r.level, r.model)));
+        runCount = allRuns.length;
     } catch {
         /* the duplicate-run hint just won't show; not worth blocking the page over */
     }
@@ -511,28 +514,19 @@ async function viewSummary(episodeId, summaryId) {
 
     app.innerHTML = `
         <a class="small back-link" href="#/show/${show.id}">${backIcon()}${esc(show.title)}</a>
-        <div class="spread" style="margin-top:14px">
-            <div>
-                <h1>${esc(s.title || episode.title)}</h1>
-                <div class="muted small">${esc(episode.title)}</div>
-                ${episode.audio_url ? `<audio class="ep-audio" controls preload="none" src="${esc(episode.audio_url)}"></audio>` : ''}
-                <div class="meta-line">
-                    <span class="elevated-badge">${esc(formatDate(episode.published_at))}</span>
-                    <span class="elevated-badge">${formatDuration(transcript?.duration_sec || episode.duration_sec)}</span>
-                    ${s.language ? `<span class="elevated-badge">${esc(s.language)}</span>` : ''}
-                </div>
-                <div class="meta-line">
-                    <span class="elevated-badge accent">${esc(BACKEND_LABEL[summary.backend] || summary.backend || 'unknown')}</span>
-                    ${summary.model ? `<span class="elevated-badge">${esc(summary.model)}</span>` : ''}
-                    ${summary.level ? `<span class="elevated-badge">${esc(LEVEL_LABEL[summary.level] || summary.level)}</span>` : ''}
-                </div>
+        <div style="margin-top:14px">
+            <h1>${esc(s.title || episode.title)}</h1>
+            <div class="muted small">${esc(episode.title)}</div>
+            ${episode.audio_url ? `<audio class="ep-audio" controls preload="none" src="${esc(episode.audio_url)}"></audio>` : ''}
+            <div class="meta-line">
+                <span class="elevated-badge">${esc(formatDate(episode.published_at))}</span>
+                <span class="elevated-badge">${formatDuration(transcript?.duration_sec || episode.duration_sec)}</span>
+                ${s.language ? `<span class="elevated-badge">${esc(s.language)}</span>` : ''}
             </div>
-            <div class="row" style="align-items:center">
-                <a class="small" href="#/episode/${episode.id}/history">All runs</a>
-                <button class="fav-btn ${summary.preferred ? 'active' : ''}" id="preferred"
-                        title="${summary.preferred ? 'Unset as preferred' : 'Set as preferred'}">${summary.preferred ? '★' : '☆'}</button>
-                <button class="quiet-btn" id="copy">Copy Markdown</button>
-                <button class="quiet-btn danger" id="delete">${trashIcon()}<span class="btn-label">Delete</span></button>
+            <div class="meta-line">
+                <span class="elevated-badge accent">${esc(BACKEND_LABEL[summary.backend] || summary.backend || 'unknown')}</span>
+                ${summary.model ? `<span class="elevated-badge">${esc(summary.model)}</span>` : ''}
+                ${summary.level ? `<span class="elevated-badge">${esc(LEVEL_LABEL[summary.level] || summary.level)}</span>` : ''}
             </div>
         </div>
 
@@ -560,6 +554,19 @@ async function viewSummary(episodeId, summaryId) {
             <button class="primary-btn" id="rerun-run">Run</button>
             <span id="rerun-duplicate" class="duplicate-warning" tabindex="0"
                   aria-label="A summary with this configuration already exists" hidden>!</span>
+        </div>
+
+        <div class="summary-toolbar">
+            <div class="row">
+                <a class="small" href="#/episode/${episode.id}/history">All runs${runCount !== null ? ` (${runCount})` : ''}</a>
+                <a class="small" href="#/episode/${episode.id}/transcript">View transcript</a>
+            </div>
+            <div class="row">
+                <button class="fav-btn ${summary.preferred ? 'active' : ''}" id="preferred"
+                        title="${summary.preferred ? 'Unset as preferred' : 'Set as preferred'}">${summary.preferred ? '★' : '☆'}</button>
+                <button class="quiet-btn" id="copy">Copy Markdown</button>
+                <button class="quiet-btn danger" id="delete">${trashIcon()}<span class="btn-label">Delete</span></button>
+            </div>
         </div>
 
         <h2>Summary</h2>
@@ -630,7 +637,6 @@ async function viewSummary(episodeId, summaryId) {
         <div class="muted small">
             ${summary.input_tokens ?? '?'} in / ${summary.output_tokens ?? '?'} out tokens ·
             generated ${esc(formatDate(summary.created_at))}
-            · <a href="#/episode/${episode.id}/transcript">view transcript</a>
         </div>
     `;
 
@@ -1465,13 +1471,10 @@ function renderLibraryEpisodes(showId, allItems) {
                     <div class="elevated-badges">
                         <span class="elevated-badge">${esc(formatDate(it.created_at))}</span>
                         <span class="elevated-badge">${formatDuration(it.duration_sec)}</span>
-                        <span class="elevated-badge">${esc(it.transcript_source || '')}</span>
                         ${
                             it.status === 'not_summarized'
                                 ? '<span class="elevated-badge warn">not summarized</span>'
-                                : `<span class="elevated-badge accent">${esc(BACKEND_LABEL[it.backend] || it.backend)}</span>
-                                   ${it.model ? `<span class="elevated-badge">${esc(it.model)}</span>` : ''}
-                                   ${it.level ? `<span class="elevated-badge">${esc(LEVEL_LABEL[it.level] || it.level)}</span>` : ''}`
+                                : `<span class="elevated-badge">${it.summary_count} run${it.summary_count === 1 ? '' : 's'}</span>`
                         }
                     </div>
                 </div>

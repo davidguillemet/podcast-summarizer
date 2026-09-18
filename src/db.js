@@ -236,6 +236,7 @@ const selectEpisodes = db.prepare(`
     SELECT e.*,
            (SELECT s.id FROM summaries s WHERE s.episode_id = e.id
              ORDER BY s.created_at DESC LIMIT 1)              AS summary_id,
+           (SELECT COUNT(*) FROM summaries s WHERE s.episode_id = e.id) AS summary_count,
            (SELECT t.source FROM transcripts t WHERE t.episode_id = e.id) AS transcript_source,
            (SELECT j.id FROM jobs j WHERE j.episode_id = e.id
              AND j.status NOT IN ('done','failed') LIMIT 1)   AS active_job_id
@@ -398,6 +399,7 @@ const selectLibrary = db.prepare(`
            e.id AS episode_id, e.title AS episode_title, e.published_at, e.duration_sec,
            sh.id AS show_id, sh.title AS show_title, sh.artwork_url,
            t.source AS transcript_source,
+           (SELECT COUNT(*) FROM summaries s3 WHERE s3.episode_id = t.episode_id) AS summary_count,
            CASE WHEN s.id IS NULL THEN 'not_summarized' ELSE 'summarized' END AS status
       FROM transcripts t
       JOIN episodes e  ON e.id = t.episode_id
