@@ -296,25 +296,35 @@ button.fav-btn.active { color: var(--warn); }
 }
 .chapter:last-child { border-bottom: none; }
 
+/* Desktop/tablet default: everything fits on one row, so the two-line stack
+   from the mobile layout (see the mobile media query below) is unnecessary
+   and just wastes space and shrinks the title for no reason. */
 .chapter-header {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     cursor: pointer;
 }
 
 .chapter-meta {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 10px;
+    order: 2;
+    flex-shrink: 0;
 }
 
 .chapter-title-row {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 10px;
+    order: 1;
+    flex: 1;
+    min-width: 0;
 }
-.chapter-title-row h3 { margin: 0; }
+.chapter-title-row h3 { margin: 0; font-size: 16px; }
 
 .chapter-read-checkbox {
     flex-shrink: 0;
@@ -344,9 +354,13 @@ button.fav-btn.active { color: var(--warn); }
 }
 .chapter.collapsed .chapter-chevron { transform: rotate(-90deg); }
 
+/* Overrides the .small class's 13px — that's sized for compact UI chrome
+   (badges, buttons), not body copy meant to be read at length. */
 .chapter-body {
     margin-top: 8px;
     margin-left: 26px;
+    font-size: 14px;
+    line-height: 1.55;
 }
 .chapter.collapsed .chapter-body { display: none; }
 
@@ -718,4 +732,13 @@ ul.points li { margin-bottom: 7px; }
        own full-width line instead. */
     .elevated-row { flex-wrap: wrap; }
     .elevated-row > .elevated-actions { flex-basis: 100%; justify-content: flex-end; }
+
+    /* Checkbox, timestamp, title and chevron don't fit on one row at this
+       width — split into a meta row (timestamp + chevron) and a title row
+       (checkbox + title, free to wrap) instead. */
+    .chapter-header { flex-direction: column; align-items: stretch; gap: 8px; }
+    .chapter-meta { order: 0; justify-content: space-between; }
+    .chapter-title-row { order: 0; align-items: flex-start; }
+    .chapter-title-row h3 { font-size: 15px; }
+    .chapter-body { font-size: 13px; line-height: 1.5; }
 }
