@@ -567,7 +567,14 @@ async function viewSummary(episodeId, summaryId) {
 
         ${
             s.chapters?.length
-                ? `<h2>Chapters</h2><div class="chapters">${s.chapters
+                ? `<div class="spread" style="align-items:center">
+                        <h2 style="margin:28px 0 12px">Chapters</h2>
+                        <div class="row">
+                            <button class="quiet-btn" id="chapters-expand-all">Expand all</button>
+                            <button class="quiet-btn" id="chapters-collapse-all">Collapse all</button>
+                        </div>
+                   </div>
+                   <div class="chapters">${s.chapters
                       .map((c, i) => {
                           const read = readChapters.has(i);
                           return `<div class="chapter ${read ? 'collapsed' : ''}" data-index="${i}">
@@ -645,6 +652,14 @@ async function viewSummary(episodeId, summaryId) {
         } finally {
             btn.disabled = false;
         }
+    });
+
+    document.getElementById('chapters-expand-all')?.addEventListener('click', () => {
+        document.querySelectorAll('.chapter').forEach((el) => el.classList.remove('collapsed'));
+    });
+
+    document.getElementById('chapters-collapse-all')?.addEventListener('click', () => {
+        document.querySelectorAll('.chapter').forEach((el) => el.classList.add('collapsed'));
     });
 
     document.querySelectorAll('[data-chapter-toggle]').forEach((header) => {
