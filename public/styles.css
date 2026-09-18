@@ -97,6 +97,10 @@ main {
     color: var(--muted);
     background: var(--surface);
     border-top: 1px solid var(--border);
+    /* Above .topbar (10) and .quick-nav (9): on a short page, the sticky quick-nav's
+       unstuck resting position can land in the same screen area as this fixed bar, and
+       without an explicit z-index here it lost to quick-nav's, disappearing underneath it. */
+    z-index: 11;
 }
 
 /* ---------------------------------------------------------------- shared */
@@ -165,6 +169,34 @@ button.fav-btn.active { color: var(--warn); }
     padding-top: 12px;
     border-top: 1px solid var(--border);
 }
+
+/* top is set inline to the topbar's actual height (see viewSummary in app.js) so it sticks
+   flush underneath it rather than at a guessed offset. */
+.quick-nav {
+    position: sticky;
+    z-index: 9;
+    display: flex;
+    gap: 6px;
+    margin-top: 18px;
+    padding: 8px 0;
+    background: var(--bg);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.quick-nav::-webkit-scrollbar { display: none; }
+
+.quick-nav-link {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 13px;
+    white-space: nowrap;
+}
+.quick-nav-link:hover { color: var(--text); text-decoration: none; }
+.quick-nav-link.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 
 /* ---------------------------------------------------------------- search */
 

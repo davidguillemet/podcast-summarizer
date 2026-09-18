@@ -1,5 +1,8 @@
 const app = document.getElementById('app');
 const statusLine = document.getElementById('status-line');
+// Tracks the summary page's active-section highlighter so a re-render (or navigating away)
+// disconnects the previous one instead of leaking an observer tied to discarded DOM nodes.
+let summaryNavObserver = null;
 
 /* ------------------------------------------------------------- utilities */
 
@@ -512,6 +515,15 @@ async function viewSummary(episodeId, summaryId) {
     };
     const rerunDefaultBackend = currentBackend();
 
+    /** Quick-nav pills: only for sections the summary actually has content for. */
+    const navSections = [
+        { id: 'section-summary', label: 'Summary', show: true },
+        { id: 'section-chapters', label: 'Chapters', show: !!s.chapters?.length },
+        { id: 'section-key-points', label: 'Key points', show: !!s.key_points?.length },
+        { id: 'section-quotes', label: 'Quotes', show: !!s.quotes?.length },
+        { id: 'section-terms', label: 'People & terms', show: !!s.people_and_terms?.length }
+    ].filter((sec) => sec.show);
+
     app.innerHTML = `
         <a class="small back-link" href="#/show/${show.id}">${backIcon()}${esc(show.title)}</a>
         <div style="margin-top:14px">
@@ -569,13 +581,17 @@ async function viewSummary(episodeId, summaryId) {
             </div>
         </div>
 
-        <h2>Summary</h2>
+        <nav class="quick-nav" id="quick-nav">
+            ${navSections.map((sec) => `<a href="#" class="quick-nav-link" data-target="${sec.id}">${esc(sec.label)}</a>`).join('')}
+        </nav>
+
+        <h2 id="section-summary">Summary</h2>
         <div class="tldr">${esc(s.tldr)}</div>
 
         ${
             s.chapters?.length
                 ? `<div class="spread" style="align-items:center">
-                        <h2 style="margin:28px 0 12px">Chapters</h2>
+                        <h2 id="section-chapters" style="margin:28px 0 12px">Chapters</h2>
                         <div class="row">
                             <button class="quiet-btn" id="chapters-expand-all">Expand all</button>
                             <button class="quiet-btn" id="chapters-collapse-all">Collapse all</button>
@@ -605,7 +621,7 @@ async function viewSummary(episodeId, summaryId) {
 
         ${
             s.key_points?.length
-                ? `<h2>Key points</h2><ul class="points">${s.key_points
+                ? `<h2 id="section-key-points">Key points</h2><ul class="points">${s.key_points
                       .map((p) => `<li>${esc(p)}</li>`)
                       .join('')}</ul>`
                 : ''
@@ -613,7 +629,7 @@ async function viewSummary(episodeId, summaryId) {
 
         ${
             s.quotes?.length
-                ? `<h2>Quotes</h2><div>${s.quotes
+                ? `<h2 id="section-quotes">Quotes</h2><div>${s.quotes
                       .map(
                           (q) => `<div class="quote">“${esc(q.text)}”
                             <div class="quote-meta">${esc(q.speaker)} · ${esc(q.timestamp)}</div></div>`
@@ -624,7 +640,7 @@ async function viewSummary(episodeId, summaryId) {
 
         ${
             s.people_and_terms?.length
-                ? `<h2>People &amp; terms</h2><div class="terms">${s.people_and_terms
+                ? `<h2 id="section-terms">People &amp; terms</h2><div class="terms">${s.people_and_terms
                       .map(
                           (t) => `<div class="term"><div class="term-name">${esc(t.name)}</div>
                             <div class="term-note">${esc(t.note)}</div></div>`
@@ -639,6 +655,35 @@ async function viewSummary(episodeId, summaryId) {
             generated ${esc(formatDate(summary.created_at))}
         </div>
     `;
+
+    // The router treats any location.hash change as a route (see router() below), so these
+    // links can't be real #anchors — a real hash change would be mistaken for navigation and
+    // send the app back to the search view. Scroll manually instead.
+    const quickNav = document.getElementById('quick-nav');
+    quickNav.style.top = `${document.querySelector('.topbar').offsetHeight}px`;
+    const navLinks = [...quickNav.querySelectorAll('.quick-nav-link')];
+    const navOffset = quickNav.offsetHeight + document.querySelector('.topbar').offsetHeight + 12;
+    navLinks.forEach((link) => {
+        const target = document.getElementById(link.dataset.target);
+        target.style.scrollMarginTop = `${navOffset}px`;
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            target.scrollIntoView({ behavior: 'smooth' });
+        });
+    });
+
+    summaryNavObserver?.disconnect();
+    summaryNavObserver = new IntersectionObserver(
+        (entries) => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) continue;
+                const link = navLinks.find((l) => l.dataset.target === entry.target.id);
+                if (link) navLinks.forEach((l) => l.classList.toggle('active', l === link));
+            }
+        },
+        { rootMargin: `-${navOffset}px 0px -70% 0px` }
+    );
+    navLinks.forEach((link) => summaryNavObserver.observe(document.getElementById(link.dataset.target)));
 
     document.getElementById('preferred').addEventListener('click', async (e) => {
         const btn = e.currentTarget;
@@ -1549,6 +1594,7 @@ function renderLibraryEpisodes(showId, allItems) {
 
 function router() {
     closeStream();
+    summaryNavObserver?.disconnect();
     // Only viewCompare opts into a wider layout; every other view starts from the default.
     app.style.maxWidth = '';
     const hash = location.hash.replace(/^#/, '') || '/';
