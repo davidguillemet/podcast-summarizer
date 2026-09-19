@@ -83,10 +83,30 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS show_favorites (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    show_id    INTEGER NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, show_id)
+);
+
+-- Reading progress only; "is this episode in my library" is answered by summaries/jobs
+-- instead, so a row here is only ever written for an explicit to_read/pending/read — the
+-- 'not_started' default is deliberately never stored (see setEpisodeStatus below).
+CREATE TABLE IF NOT EXISTS episode_status (
+    user_id    INTEGER NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+    episode_id INTEGER NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+    status     TEXT NOT NULL, -- 'to_read' | 'pending' | 'read'
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, episode_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_episodes_show ON episodes(show_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_episode  ON jobs(episode_id);
 CREATE INDEX IF NOT EXISTS idx_summaries_ep  ON summaries(episode_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_show_favorites_user ON show_favorites(user_id);
+CREATE INDEX IF NOT EXISTS idx_episode_status_user  ON episode_status(user_id);
 `);
 
 /**
@@ -138,8 +158,60 @@ ensureColumn('users', 'mistral_model', 'TEXT');
 // Default provider for this user's new jobs — NULL means "no preference", falling back to
 // config.summarizer, same relationship level/summary_level has to DEFAULT_SUMMARY_LEVEL.
 ensureColumn('users', 'default_backend', 'TEXT');
+// Summaries are per-user, not shared like the transcript underneath — two users who both
+// summarize the same episode get two rows and two model calls, each billed to its own owner.
+// See getActiveJobForEpisode() below, which is what actually prevents the sharing at the
+// source (this column alone wouldn't, since jobs could still be reused across users).
+ensureColumn('summaries', 'user_id', 'INTEGER REFERENCES users(id)');
 
 const now = () => new Date().toISOString();
+
+/**
+ * One-time data migrations, gated by PRAGMA user_version so each runs exactly once ever for
+ * this database file. This module's top-level code runs on every process that imports db.js —
+ * not just `npm start` — so anything here that isn't safe to repeat forever (unlike
+ * `ensureColumn`, or the `level` backfill above, both idempotent forever because nothing ever
+ * un-sets what they check) must be gated. Both migrations below touch state that legitimately
+ * goes back to its "unset" value later during ordinary operation: `deleteUser()` orphans
+ * `summaries.user_id` back to NULL on purpose, and a user created *after* this migration must
+ * never be auto-favorited into shows they never touched. Re-running on every boot would
+ * misattribute a deleted user's orphaned summaries to whichever user happens to be the sole
+ * survivor at that moment, or silently favorite every legacy show for a brand-new signup.
+ */
+const DATA_MIGRATION_VERSION = 1;
+if (db.pragma('user_version', { simple: true }) < DATA_MIGRATION_VERSION) {
+    // Backfill for summaries written before `user_id` existed. With exactly one user (at
+    // migration time) this is unambiguous; with several, best-effort match each orphaned
+    // summary to the jobs row with the same episode/backend closest in time (jobs.user_id has
+    // existed longer). Anything left unmatched stays NULL and is invisible to everyone rather
+    // than risking misattributing it to the wrong user.
+    (function backfillSummaryOwners() {
+        const orphaned = db.prepare('SELECT COUNT(*) AS n FROM summaries WHERE user_id IS NULL').get().n;
+        if (orphaned === 0) return;
+        const users = db.prepare('SELECT id FROM users').all();
+        if (users.length === 1) {
+            db.prepare('UPDATE summaries SET user_id = ? WHERE user_id IS NULL').run(users[0].id);
+        } else if (users.length > 1) {
+            db.exec(`
+                UPDATE summaries SET user_id = (
+                    SELECT j.user_id FROM jobs j
+                     WHERE j.episode_id = summaries.episode_id AND j.backend = summaries.backend AND j.user_id IS NOT NULL
+                     ORDER BY ABS(julianday(j.created_at) - julianday(summaries.created_at)) LIMIT 1
+                ) WHERE user_id IS NULL
+            `);
+        }
+    })();
+
+    // Grandfathers every user that existed at migration time into every show that was already
+    // favorited, preserving pre-migration behavior (fully shared) for data that predates
+    // per-user favorites. Users created after this point start with no favorites, as expected.
+    db.prepare(
+        `INSERT OR IGNORE INTO show_favorites (user_id, show_id, created_at)
+         SELECT u.id, sh.id, ? FROM users u, shows sh WHERE sh.favorite = 1`
+    ).run(now());
+
+    db.pragma(`user_version = ${DATA_MIGRATION_VERSION}`);
+}
 
 /* ------------------------------------------------------------------ shows */
 
@@ -174,30 +246,48 @@ export const getShow = (id) => selectShow.get(id);
 const selectShowByFeed = db.prepare('SELECT * FROM shows WHERE feed_url = ?');
 export const getShowByFeed = (feedUrl) => selectShowByFeed.get(feedUrl);
 
-const setFavoriteStmt = db.prepare('UPDATE shows SET favorite = ? WHERE id = ?');
-export const setFavorite = (id, favorite) => setFavoriteStmt.run(favorite ? 1 : 0, id).changes > 0;
+const insertShowFavorite = db.prepare(
+    'INSERT OR IGNORE INTO show_favorites (user_id, show_id, created_at) VALUES (?, ?, ?)'
+);
+const deleteShowFavorite = db.prepare('DELETE FROM show_favorites WHERE user_id = ? AND show_id = ?');
+/** Per-user favorite — replaces the old global `shows.favorite` column, which stays in the
+ *  schema (additive-only migrations can't drop it) but is no longer read anywhere. */
+export function setShowFavorite(userId, showId, favorite) {
+    if (favorite) insertShowFavorite.run(userId, showId, now());
+    else deleteShowFavorite.run(userId, showId);
+    return favorite;
+}
 
 /**
- * Shows worth showing on the "Podcasts" browse page: favorited, or with at least one
- * transcribed episode — as opposed to every show ever opened from search, most of which
- * have neither. LEFT JOINs throughout because a favorited-but-never-opened show may have
- * zero episodes cached yet.
+ * Shows worth showing on this user's "Podcasts" browse page: favorited by them, or with at
+ * least one episode they've personally engaged with — as opposed to every show ever opened
+ * from search, most of which have neither. `transcript_count` counts episodes this user has
+ * run a job for (attempted, regardless of outcome); `summarized_count` counts episodes they
+ * have a completed summary for. Both are scoped to this user's own activity via `jobs`/
+ * `summaries`, not everyone's — the underlying transcript is a shared cache, but a transcript
+ * existing only because *another* user transcribed it doesn't belong on this user's page.
+ * Correlated subqueries (rather than JOIN+GROUP BY) avoid fan-out when a show has many episodes.
  */
 const selectBrowsableShows = db.prepare(`
     SELECT sh.id AS show_id, sh.title AS show_title, sh.author, sh.artwork_url, sh.feed_url,
-           sh.source, sh.source_id, sh.favorite,
-           COUNT(DISTINCT t.episode_id) AS transcript_count,
-           COUNT(DISTINCT s.episode_id) AS summarized_count,
-           MAX(COALESCE(s.created_at, t.created_at, sh.created_at)) AS last_activity
+           sh.source, sh.source_id,
+           EXISTS(SELECT 1 FROM show_favorites f WHERE f.show_id = sh.id AND f.user_id = @uid) AS favorite,
+           (SELECT COUNT(DISTINCT j.episode_id) FROM jobs j
+              JOIN episodes je ON je.id = j.episode_id
+             WHERE je.show_id = sh.id AND j.user_id = @uid) AS transcript_count,
+           (SELECT COUNT(DISTINCT s.episode_id) FROM summaries s
+              JOIN episodes se ON se.id = s.episode_id
+             WHERE se.show_id = sh.id AND s.user_id = @uid) AS summarized_count,
+           (SELECT MAX(s.created_at) FROM summaries s
+              JOIN episodes se ON se.id = s.episode_id
+             WHERE se.show_id = sh.id AND s.user_id = @uid) AS last_activity
       FROM shows sh
- LEFT JOIN episodes e    ON e.show_id = sh.id
- LEFT JOIN transcripts t ON t.episode_id = e.id
- LEFT JOIN summaries s   ON s.episode_id = e.id
-     WHERE sh.favorite = 1 OR t.id IS NOT NULL
-     GROUP BY sh.id
-     ORDER BY sh.favorite DESC, last_activity DESC
+     WHERE EXISTS(SELECT 1 FROM show_favorites f WHERE f.show_id = sh.id AND f.user_id = @uid)
+        OR EXISTS(SELECT 1 FROM summaries s JOIN episodes se ON se.id = s.episode_id
+                   WHERE se.show_id = sh.id AND s.user_id = @uid)
+     ORDER BY favorite DESC, last_activity DESC
 `);
-export const listBrowsableShows = () => selectBrowsableShows.all();
+export const listBrowsableShows = (userId) => selectBrowsableShows.all({ uid: userId });
 
 /* --------------------------------------------------------------- episodes */
 
@@ -264,11 +354,16 @@ export function createJob(episodeId, backend = null, userId = null, level = null
 const selectJob = db.prepare('SELECT * FROM jobs WHERE id = ?');
 export const getJob = (id) => selectJob.get(id);
 
+// Scoped to the requesting user — this is what stops summaries from being shared across
+// users. Reusing *any* user's in-flight job here would mean a second user silently gets the
+// first user's summary instead of their own; scoping means each user always ends up with
+// their own job (and therefore their own summary), while transcription itself still gets
+// skipped for whichever job runs second, via the cache-check in pipeline.js's runJob().
 const selectActiveJob = db.prepare(`
-    SELECT * FROM jobs WHERE episode_id = ? AND status NOT IN ('done','failed')
+    SELECT * FROM jobs WHERE episode_id = ? AND user_id = ? AND status NOT IN ('done','failed')
     ORDER BY id DESC LIMIT 1
 `);
-export const getActiveJobForEpisode = (episodeId) => selectActiveJob.get(episodeId);
+export const getActiveJobForEpisode = (episodeId, userId) => selectActiveJob.get(episodeId, userId);
 
 /** Partial update — only the provided columns are written. */
 export function updateJob(id, fields) {
@@ -318,25 +413,23 @@ export function saveTranscript(t) {
 const selectTranscript = db.prepare('SELECT * FROM transcripts WHERE episode_id = ?');
 export const getTranscript = (episodeId) => selectTranscript.get(episodeId);
 
-const deleteSummariesForEpisode = db.prepare('DELETE FROM summaries WHERE episode_id = ?');
 const deleteTranscriptStmt = db.prepare('DELETE FROM transcripts WHERE episode_id = ?');
-
-/** Drops the whole pipeline result for an episode — every summary plus the transcript itself. */
-export const deleteTranscript = db.transaction((episodeId) => {
-    deleteSummariesForEpisode.run(episodeId);
-    return deleteTranscriptStmt.run(episodeId).changes > 0;
-});
 
 /* -------------------------------------------------------------- summaries */
 
+// Summaries are private per user (see the jobs.user_id/getActiveJobForEpisode comment above) —
+// every function in this section is scoped to a specific owner, and ownership must also be
+// checked by the caller (routes/jobs.js) before any lookup-by-id is used to mutate a summary,
+// since summary IDs are guessable sequential integers.
 const insertSummary = db.prepare(`
-    INSERT INTO summaries (episode_id, json, model, backend, level, input_tokens, output_tokens, created_at)
-    VALUES (@episode_id, @json, @model, @backend, @level, @input_tokens, @output_tokens, @created_at)
+    INSERT INTO summaries (episode_id, user_id, json, model, backend, level, input_tokens, output_tokens, created_at)
+    VALUES (@episode_id, @user_id, @json, @model, @backend, @level, @input_tokens, @output_tokens, @created_at)
     RETURNING *
 `);
 export function saveSummary(s) {
     return insertSummary.get({
         episode_id: s.episodeId,
+        user_id: s.userId,
         json: JSON.stringify(s.data),
         model: s.model ?? null,
         backend: s.backend ?? null,
@@ -347,33 +440,40 @@ export function saveSummary(s) {
     });
 }
 
-/** Every summary ever generated for an episode, newest first — used for A/B comparison. */
+/** Every summary this user has generated for an episode, newest first — used for A/B comparison. */
 const selectSummaryHistory = db.prepare(
-    'SELECT * FROM summaries WHERE episode_id = ? ORDER BY created_at DESC'
+    'SELECT * FROM summaries WHERE episode_id = ? AND user_id = ? ORDER BY created_at DESC'
 );
-export const listSummaries = (episodeId) => selectSummaryHistory.all(episodeId);
+export const listSummaries = (episodeId, userId) => selectSummaryHistory.all(episodeId, userId);
 
-/** The summary shown by default: the user's preferred pick, or else the newest run. */
+/** The summary shown by default for this user: their preferred pick, or else their newest run. */
 const selectSummary = db.prepare(
-    'SELECT * FROM summaries WHERE episode_id = ? ORDER BY preferred DESC, created_at DESC LIMIT 1'
+    'SELECT * FROM summaries WHERE episode_id = ? AND user_id = ? ORDER BY preferred DESC, created_at DESC LIMIT 1'
 );
-export const getSummary = (episodeId) => selectSummary.get(episodeId);
+export const getSummary = (episodeId, userId) => selectSummary.get(episodeId, userId);
 
+// Unscoped by design — routes fetch by id first, then compare summary.user_id against the
+// session before acting, so they can return a 404 (not a 403) on someone else's summary.
 const selectSummaryById = db.prepare('SELECT * FROM summaries WHERE id = ?');
 export const getSummaryById = (id) => selectSummaryById.get(id);
 
-const deleteSummaryStmt = db.prepare('DELETE FROM summaries WHERE id = ?');
-export const deleteSummary = (id) => deleteSummaryStmt.run(id).changes > 0;
+// Scoped by user_id too, as defense in depth beyond the route-level ownership check — even if
+// that check were ever bypassed, this statement still can't touch another user's row.
+const deleteSummaryStmt = db.prepare('DELETE FROM summaries WHERE id = ? AND user_id = ?');
+export const deleteSummary = (id, userId) => deleteSummaryStmt.run(id, userId).changes > 0;
 
-const clearPreferredForEpisode = db.prepare('UPDATE summaries SET preferred = 0 WHERE episode_id = ?');
+const clearPreferredForEpisode = db.prepare(
+    'UPDATE summaries SET preferred = 0 WHERE episode_id = ? AND user_id = ?'
+);
 const setPreferredFlagStmt = db.prepare('UPDATE summaries SET preferred = ? WHERE id = ?');
 
-/** Marks (or unmarks) a summary as the episode's default. Setting one clears any other
- *  preferred summary for the same episode, since only one can hold the flag at a time. */
+/** Marks (or unmarks) a summary as this user's default for the episode. Setting one clears any
+ *  other preferred summary *of theirs* for the same episode — preferred is now "one per
+ *  (episode, user)", not one per episode globally. */
 export const setSummaryPreferred = db.transaction((id, preferred) => {
     const summary = selectSummaryById.get(id);
     if (!summary) return null;
-    if (preferred) clearPreferredForEpisode.run(summary.episode_id);
+    if (preferred) clearPreferredForEpisode.run(summary.episode_id, summary.user_id);
     setPreferredFlagStmt.run(preferred ? 1 : 0, id);
     return selectSummaryById.get(id);
 });
@@ -389,28 +489,85 @@ export function setSummaryReadChapters(id, indices) {
 }
 
 /**
- * Rooted at transcripts, not summaries, so an episode whose only summary was deleted still
- * shows up (as "not_summarized") instead of vanishing — the transcript is the expensive,
- * cached artifact and deleting a summary must not hide that it already exists.
+ * Rooted at episodes this user has personally touched — has a job for (any status, so an
+ * in-progress or failed attempt still shows as "not_summarized" instead of vanishing) or a
+ * summary for — not at the shared `transcripts` table, which would list everyone's activity.
+ * The transcript itself is still a shared cache and is only joined in for display fields.
  */
 const selectLibrary = db.prepare(`
-    SELECT s.id AS summary_id, COALESCE(s.created_at, t.created_at) AS created_at,
+    SELECT s.id AS summary_id,
+           COALESCE(s.created_at, t.created_at,
+               (SELECT MAX(j.created_at) FROM jobs j WHERE j.episode_id = e.id AND j.user_id = @uid)
+           ) AS created_at,
            s.model, s.backend, s.level, s.input_tokens, s.output_tokens,
            e.id AS episode_id, e.title AS episode_title, e.published_at, e.duration_sec,
            sh.id AS show_id, sh.title AS show_title, sh.artwork_url,
            t.source AS transcript_source,
-           (SELECT COUNT(*) FROM summaries s3 WHERE s3.episode_id = t.episode_id) AS summary_count,
-           CASE WHEN s.id IS NULL THEN 'not_summarized' ELSE 'summarized' END AS status
-      FROM transcripts t
-      JOIN episodes e  ON e.id = t.episode_id
-      JOIN shows sh    ON sh.id = e.show_id
+           (SELECT COUNT(*) FROM summaries s3 WHERE s3.episode_id = e.id AND s3.user_id = @uid) AS summary_count,
+           CASE WHEN s.id IS NULL THEN 'not_summarized' ELSE 'summarized' END AS status,
+           COALESCE(es.status, 'not_started') AS reading_status
+      FROM episodes e
+      JOIN shows sh ON sh.id = e.show_id
+ LEFT JOIN transcripts t ON t.episode_id = e.id
  LEFT JOIN summaries s ON s.id = (
-                SELECT s2.id FROM summaries s2 WHERE s2.episode_id = t.episode_id
+                SELECT s2.id FROM summaries s2 WHERE s2.episode_id = e.id AND s2.user_id = @uid
                 ORDER BY s2.preferred DESC, s2.id DESC LIMIT 1
             )
+ LEFT JOIN episode_status es ON es.episode_id = e.id AND es.user_id = @uid
+     WHERE EXISTS(SELECT 1 FROM jobs j2 WHERE j2.episode_id = e.id AND j2.user_id = @uid)
+        OR s.id IS NOT NULL
      ORDER BY created_at DESC
 `);
-export const listLibrary = () => selectLibrary.all();
+export const listLibrary = (userId) => selectLibrary.all({ uid: userId });
+
+/* ----------------------------------------------------------- reading status */
+
+const selectEpisodeStatus = db.prepare('SELECT status FROM episode_status WHERE user_id = ? AND episode_id = ?');
+/** 'not_started' when no row exists — same implicit default used throughout this table. */
+export const getEpisodeStatus = (userId, episodeId) => selectEpisodeStatus.get(userId, episodeId)?.status ?? 'not_started';
+
+const upsertEpisodeStatusStmt = db.prepare(`
+    INSERT INTO episode_status (user_id, episode_id, status, updated_at)
+    VALUES (@user_id, @episode_id, @status, @updated_at)
+    ON CONFLICT(user_id, episode_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at
+`);
+const deleteEpisodeStatusStmt = db.prepare('DELETE FROM episode_status WHERE user_id = ? AND episode_id = ?');
+const VALID_EPISODE_STATUSES = ['to_read', 'pending', 'read'];
+
+/** status is 'to_read' | 'pending' | 'read' | 'not_started'; 'not_started' deletes the row (the
+ *  untouched default) instead of storing it — only an explicit status ever gets a row. */
+export function setEpisodeStatus(userId, episodeId, status) {
+    if (status === 'not_started') {
+        deleteEpisodeStatusStmt.run(userId, episodeId);
+        return;
+    }
+    if (!VALID_EPISODE_STATUSES.includes(status)) throw new Error(`Unknown episode status "${status}"`);
+    upsertEpisodeStatusStmt.run({ user_id: userId, episode_id: episodeId, status, updated_at: now() });
+}
+
+const deleteMySummariesStmt = db.prepare('DELETE FROM summaries WHERE episode_id = ? AND user_id = ?');
+const countOtherSummariesStmt = db.prepare('SELECT COUNT(*) AS n FROM summaries WHERE episode_id = ?');
+const countActiveJobsStmt = db.prepare(
+    "SELECT COUNT(*) AS n FROM jobs WHERE episode_id = ? AND status NOT IN ('done','failed')"
+);
+
+/**
+ * "Remove from my library": deletes this user's own summary (and reading status) for an
+ * episode. Only drops the shared transcript once nobody else has a summary for the episode AND
+ * no job (any user's) is currently in flight for it. Safe against a concurrently-running job:
+ * pipeline.js's runJob() reads the transcript into a local variable once and never re-reads it
+ * from the DB before summarizing, so a delete mid-run can't corrupt that job — the only effect
+ * of an unlucky ordering is a not-yet-started job missing a cache hit and re-transcribing.
+ * Wrapped in a transaction; better-sqlite3 is synchronous and Node is single-threaded, so
+ * nothing can interleave between the "still used?" check and the delete.
+ */
+export const removeFromLibrary = db.transaction((userId, episodeId) => {
+    deleteMySummariesStmt.run(episodeId, userId);
+    deleteEpisodeStatusStmt.run(userId, episodeId);
+    const stillUsed = countOtherSummariesStmt.get(episodeId).n > 0 || countActiveJobsStmt.get(episodeId).n > 0;
+    if (!stillUsed) deleteTranscriptStmt.run(episodeId);
+    return { transcriptDeleted: !stillUsed };
+});
 
 /* -------------------------------------------------------------- accounts */
 
@@ -440,15 +597,27 @@ export const listUsers = () => selectUsers.all();
 const orphanJobsStmt = db.prepare(
     'UPDATE jobs SET user_id = NULL WHERE user_id = (SELECT id FROM users WHERE username = ?)'
 );
+// summaries.user_id has the exact same no-ON-DELETE-action problem as jobs.user_id (same
+// reason: it was added via ensureColumn to an existing table, and SQLite can't add a
+// constraint to an existing column without rebuilding it). Orphan rather than delete, same
+// choice already made for jobs — the generated summary cost real API/compute time to produce,
+// and an orphaned row (user_id NULL) simply never matches any session's user_id again, so it's
+// invisible to everyone without needing to be destroyed.
+const orphanSummariesStmt = db.prepare(
+    'UPDATE summaries SET user_id = NULL WHERE user_id = (SELECT id FROM users WHERE username = ?)'
+);
 const deleteUserStmt = db.prepare('DELETE FROM users WHERE username = ?');
 
 /**
- * `jobs.user_id` has no ON DELETE action (SQLite can't add one to an existing column
- * without rebuilding the table, which conflicts with additive-only migrations), so a user
- * who ever ran a job would otherwise be undeletable — orphan their old jobs first.
+ * `jobs.user_id` and `summaries.user_id` have no ON DELETE action (SQLite can't add one to an
+ * existing column without rebuilding the table, which conflicts with additive-only migrations),
+ * so a user who ever ran a job or generated a summary would otherwise be undeletable — orphan
+ * both first. `show_favorites` and `episode_status` don't need this: they're new tables, so
+ * they declared ON DELETE CASCADE from the start and clean themselves up automatically.
  */
 export const deleteUser = db.transaction((username) => {
     orphanJobsStmt.run(username);
+    orphanSummariesStmt.run(username);
     return deleteUserStmt.run(username).changes > 0;
 });
 

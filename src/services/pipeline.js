@@ -212,6 +212,7 @@ export async function runJob(jobId) {
 
         saveSummary({
             episodeId: episode.id,
+            userId: job.user_id,
             data,
             model,
             backend: backend || backendName,

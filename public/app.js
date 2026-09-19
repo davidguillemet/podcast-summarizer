@@ -59,7 +59,8 @@ const session = {
     account: null,
     backend: null,
     favoriteFeedUrls: new Set(),
-    podcastsFilter: { favorites: true, transcribed: true }
+    podcastsFilter: { favorites: true, transcribed: true },
+    libraryTab: 'all' // 'all' | 'to_read' | 'pending' | 'read'
 };
 let activeStream = null;
 
@@ -487,7 +488,7 @@ async function viewSummary(episodeId, summaryId) {
         return;
     }
 
-    const { episode, show, summary, transcript } = data;
+    const { episode, show, summary, transcript, readingStatus } = data;
     const s = summary.data;
     // Server-persisted per-summary — see setSummaryReadChapters() in db.js. Expand/collapse
     // itself is not persisted, only this flag, which decides the initial collapsed state.
@@ -574,6 +575,15 @@ async function viewSummary(episodeId, summaryId) {
                 <a class="small" href="#/episode/${episode.id}/transcript">View transcript</a>
             </div>
             <div class="row">
+                <div class="select-pill-group">
+                    <label class="small muted">
+                        <select id="reading-status" data-current="${readingStatus}">
+                            ${Object.keys(READING_STATUS_LABEL)
+                                .map((st) => `<option value="${st}" ${readingStatus === st ? 'selected' : ''}>${READING_STATUS_LABEL[st]}</option>`)
+                                .join('')}
+                        </select>
+                    </label>
+                </div>
                 <button class="fav-btn ${summary.preferred ? 'active' : ''}" id="preferred"
                         title="${summary.preferred ? 'Unset as preferred' : 'Set as preferred'}">${summary.preferred ? '★' : '☆'}</button>
                 <button class="quiet-btn" id="copy">Copy Markdown</button>
@@ -702,6 +712,22 @@ async function viewSummary(episodeId, summaryId) {
             app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
         } finally {
             btn.disabled = false;
+        }
+    });
+
+    document.getElementById('reading-status').addEventListener('change', async (e) => {
+        const select = e.currentTarget;
+        const previous = select.dataset.current || 'not_started';
+        const next = select.value;
+        select.disabled = true;
+        try {
+            await api(`/episodes/${episode.id}/status`, { method: 'PUT', body: JSON.stringify({ status: next }) });
+            select.dataset.current = next;
+        } catch (err) {
+            select.value = previous;
+            app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+        } finally {
+            select.disabled = false;
         }
     });
 
@@ -1432,13 +1458,40 @@ const trashIcon = () =>
 const chevronIcon = () =>
     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
 
+const LIBRARY_TABS = [
+    { value: 'all', label: 'All Episodes' },
+    { value: 'to_read', label: 'To Read' },
+    { value: 'pending', label: 'Currently Reading' },
+    { value: 'read', label: 'Read' }
+];
+const READING_STATUS_LABEL = { not_started: 'Not started', to_read: 'To Read', pending: 'Pending', read: 'Read' };
+
+const libraryTabsHtml = () =>
+    `<div class="row">${LIBRARY_TABS.map(
+        (t) => `<button class="toggle-btn ${session.libraryTab === t.value ? 'active' : ''}" data-tab="${t.value}">${t.label}</button>`
+    ).join('')}</div>`;
+
+function wireLibraryTabs(rerender) {
+    app.querySelectorAll('[data-tab]').forEach((btn) =>
+        btn.addEventListener('click', () => {
+            if (session.libraryTab === btn.dataset.tab) return;
+            session.libraryTab = btn.dataset.tab;
+            rerender();
+        })
+    );
+}
+
+/** Not-started episodes only ever show under the "All Episodes" tab, by construction. */
+const filterByLibraryTab = (items) =>
+    session.libraryTab === 'all' ? items : items.filter((it) => it.reading_status === session.libraryTab);
+
 async function viewLibrary(showIdParam) {
     app.innerHTML = '<div class="loading">Loading library…</div>';
     const { items } = await api('/library');
 
     if (items.length === 0) {
         app.innerHTML = `<h1>Library</h1>
-            <div class="notice">Nothing transcribed yet. <a href="#/">Find a podcast</a> to get started.</div>`;
+            <div class="notice">Nothing in your library yet. <a href="#/">Find a podcast</a> to get started.</div>`;
         return;
     }
 
@@ -1446,148 +1499,192 @@ async function viewLibrary(showIdParam) {
     return void renderLibraryShows(items);
 }
 
-/** Library landing page: one card per podcast that has at least one transcribed episode. */
+/** Library landing page: one card per podcast with at least one episode matching the active tab. */
 function renderLibraryShows(items) {
-    const shows = new Map();
-    for (const it of items) {
-        if (!shows.has(it.show_id)) {
-            shows.set(it.show_id, { id: it.show_id, title: it.show_title, artworkUrl: it.artwork_url, count: 0, pending: 0 });
+    const render = () => {
+        const filtered = filterByLibraryTab(items);
+        const shows = new Map();
+        for (const it of filtered) {
+            if (!shows.has(it.show_id)) {
+                shows.set(it.show_id, { id: it.show_id, title: it.show_title, artworkUrl: it.artwork_url, count: 0, pending: 0 });
+            }
+            const sh = shows.get(it.show_id);
+            sh.count++;
+            if (it.status === 'not_summarized') sh.pending++;
         }
-        const sh = shows.get(it.show_id);
-        sh.count++;
-        if (it.status === 'not_summarized') sh.pending++;
-    }
-    const list = [...shows.values()].sort((a, b) => a.title.localeCompare(b.title));
+        const list = [...shows.values()].sort((a, b) => a.title.localeCompare(b.title));
 
-    app.innerHTML = `
-        <h1>Library</h1>
-        <p class="muted small">${items.length} episode${items.length === 1 ? '' : 's'} across ${list.length} podcast${list.length === 1 ? '' : 's'}.</p>
-        <div class="elevated-list">${list
-            .map(
-                (sh) => `
-            <div class="elevated-card" data-id="${sh.id}">
-                ${artOrFallback(sh.artworkUrl, sh.title, 'elevated-thumb')}
-                <div class="elevated-card-body">
-                    <div class="elevated-card-title">${esc(sh.title)}</div>
-                    <div class="elevated-badges">
-                        <span class="elevated-badge">${sh.count} episode${sh.count === 1 ? '' : 's'}</span>
-                        ${sh.pending ? `<span class="elevated-badge warn">${sh.pending} awaiting summary</span>` : ''}
+        app.innerHTML = `
+            <h1>Library</h1>
+            ${libraryTabsHtml()}
+            <p class="muted small">${filtered.length} episode${filtered.length === 1 ? '' : 's'} across ${list.length} podcast${list.length === 1 ? '' : 's'}.</p>
+            <div class="elevated-list">${list
+                .map(
+                    (sh) => `
+                <div class="elevated-card" data-id="${sh.id}">
+                    ${artOrFallback(sh.artworkUrl, sh.title, 'elevated-thumb')}
+                    <div class="elevated-card-body">
+                        <div class="elevated-card-title">${esc(sh.title)}</div>
+                        <div class="elevated-badges">
+                            <span class="elevated-badge">${sh.count} episode${sh.count === 1 ? '' : 's'}</span>
+                            ${sh.pending ? `<span class="elevated-badge warn">${sh.pending} awaiting summary</span>` : ''}
+                        </div>
                     </div>
-                </div>
-                <svg class="elevated-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-            </div>`
-            )
-            .join('')}</div>`;
+                    <svg class="elevated-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </div>`
+                )
+                .join('')}</div>
+            ${list.length === 0 ? '<div class="notice">No episodes match this tab.</div>' : ''}`;
 
-    app.querySelectorAll('.elevated-card').forEach((el) =>
-        el.addEventListener('click', () => (location.hash = `#/library/${el.dataset.id}`))
-    );
+        wireLibraryTabs(render);
+        app.querySelectorAll('.elevated-card').forEach((el) =>
+            el.addEventListener('click', () => (location.hash = `#/library/${el.dataset.id}`))
+        );
+    };
+
+    render();
 }
 
-/** One podcast's transcribed/summarized episodes — the Library page's previous flat-list view, filtered. */
+/** One podcast's library episodes, filtered by the active reading-status tab. */
 function renderLibraryEpisodes(showId, allItems) {
-    const items = allItems.filter((it) => it.show_id === showId);
-    if (items.length === 0) {
+    const byShow = allItems.filter((it) => it.show_id === showId);
+    if (byShow.length === 0) {
         app.innerHTML = `<a class="small back-link" href="#/library">${backIcon()}Library</a>
             <div class="notice" style="margin-top:14px">No library episodes found for this podcast.</div>`;
         return;
     }
 
-    const showTitle = items[0].show_title;
-    const showArt = items[0].artwork_url;
-    const pendingCount = items.filter((it) => it.status === 'not_summarized').length;
-    app.innerHTML = `
-        <a class="small back-link" href="#/library">${backIcon()}Library</a>
-        <div class="spread" style="align-items:flex-start;margin-top:10px">
-            <h1>${esc(showTitle)}</h1>
-            ${pendingCount ? `<div class="select-pill-group">${backendPicker()}${levelPicker()}</div>` : ''}
-        </div>
-        <p class="muted small">
-            ${items.length} episode${items.length === 1 ? '' : 's'}
-            ${pendingCount ? `— ${pendingCount} awaiting summary` : 'summarized'}.
-        </p>
-        <div class="elevated-list">${items
-            .map(
-                (it) => `
-            <div class="elevated-row" data-id="${it.episode_id}" data-status="${it.status}">
-                ${artOrFallback(showArt, showTitle, 'elevated-row-thumb')}
-                <div class="elevated-row-body">
-                    <div class="elevated-row-title">${esc(it.episode_title)}</div>
-                    <div class="elevated-badges">
-                        <span class="elevated-badge">${esc(formatDate(it.created_at))}</span>
-                        <span class="elevated-badge">${formatDuration(it.duration_sec)}</span>
+    const showTitle = byShow[0].show_title;
+    const showArt = byShow[0].artwork_url;
+
+    const render = () => {
+        const items = filterByLibraryTab(byShow);
+        const pendingCount = items.filter((it) => it.status === 'not_summarized').length;
+        app.innerHTML = `
+            <a class="small back-link" href="#/library">${backIcon()}Library</a>
+            <div class="spread" style="align-items:flex-start;margin-top:10px">
+                <h1>${esc(showTitle)}</h1>
+                ${pendingCount ? `<div class="select-pill-group">${backendPicker()}${levelPicker()}</div>` : ''}
+            </div>
+            ${libraryTabsHtml()}
+            <p class="muted small">${items.length} episode${items.length === 1 ? '' : 's'}${pendingCount ? ` — ${pendingCount} awaiting summary` : ''}.</p>
+            <div class="elevated-list">${items
+                .map(
+                    (it) => `
+                <div class="elevated-row" data-id="${it.episode_id}" data-status="${it.status}">
+                    ${artOrFallback(showArt, showTitle, 'elevated-row-thumb')}
+                    <div class="elevated-row-body">
+                        <div class="elevated-row-title">${esc(it.episode_title)}</div>
+                        <div class="elevated-badges">
+                            <span class="elevated-badge">${esc(formatDate(it.created_at))}</span>
+                            <span class="elevated-badge">${formatDuration(it.duration_sec)}</span>
+                            ${
+                                it.status === 'not_summarized'
+                                    ? '<span class="elevated-badge warn">not summarized</span>'
+                                    : `<span class="elevated-badge">${it.summary_count} run${it.summary_count === 1 ? '' : 's'}</span>`
+                            }
+                        </div>
+                    </div>
+                    <div class="elevated-actions">
+                        <a class="small" href="#/episode/${it.episode_id}/transcript"
+                           onclick="event.stopPropagation()">Transcript</a>
                         ${
                             it.status === 'not_summarized'
-                                ? '<span class="elevated-badge warn">not summarized</span>'
-                                : `<span class="elevated-badge">${it.summary_count} run${it.summary_count === 1 ? '' : 's'}</span>`
+                                ? `<button class="primary-btn" data-action="summarize" data-id="${it.episode_id}">Summarize</button>`
+                                : `<div class="select-pill-group" onclick="event.stopPropagation()">
+                                      <label class="small muted">
+                                          <select data-action="set-status" data-id="${it.episode_id}">
+                                              ${Object.keys(READING_STATUS_LABEL)
+                                                  .map(
+                                                      (s) =>
+                                                          `<option value="${s}" ${it.reading_status === s ? 'selected' : ''}>${READING_STATUS_LABEL[s]}</option>`
+                                                  )
+                                                  .join('')}
+                                          </select>
+                                      </label>
+                                  </div>`
                         }
+                        <button class="quiet-btn danger" data-action="delete" data-id="${it.episode_id}">${trashIcon()}<span class="btn-label">Delete</span></button>
                     </div>
-                </div>
-                <div class="elevated-actions">
-                    <a class="small" href="#/episode/${it.episode_id}/transcript"
-                       onclick="event.stopPropagation()">Transcript</a>
-                    ${
-                        it.status === 'not_summarized'
-                            ? `<button class="primary-btn" data-action="summarize" data-id="${it.episode_id}">Summarize</button>`
-                            : ''
-                    }
-                    <button class="quiet-btn danger" data-action="delete" data-id="${it.episode_id}">${trashIcon()}<span class="btn-label">Delete</span></button>
-                </div>
-            </div>`
-            )
-            .join('')}</div>`;
-    wireBackendPicker();
-    wireLevelPicker();
-
-    app.querySelectorAll('.elevated-row').forEach((el) => {
-        if (el.dataset.status === 'summarized') {
-            el.style.cursor = 'pointer';
-            el.addEventListener('click', () => (location.hash = `#/episode/${el.dataset.id}`));
-        }
-    });
-
-    app.querySelectorAll('[data-action="summarize"]').forEach((btn) =>
-        btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            btn.disabled = true;
-            btn.textContent = 'Starting…';
-            try {
-                const res = await api('/jobs', {
-                    method: 'POST',
-                    body: JSON.stringify({ episodeId: Number(btn.dataset.id), backend: currentBackend(), level: currentLevel() })
-                });
-                location.hash = `#/job/${res.job.id}`;
-            } catch (err) {
-                app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
-                btn.disabled = false;
-                btn.textContent = 'Summarize';
-            }
-        })
-    );
-
-    app.querySelectorAll('[data-action="delete"]').forEach((btn) =>
-        btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            if (
-                !confirm(
-                    'Delete the transcript and all summaries for this episode? ' +
-                        'This can\'t be undone — getting a new summary will mean re-downloading and re-transcribing the audio.'
+                </div>`
                 )
-            )
-                return;
-            btn.disabled = true;
-            const label = btn.querySelector('.btn-label');
-            label.textContent = 'Deleting…';
-            try {
-                await api(`/episodes/${btn.dataset.id}/transcript`, { method: 'DELETE' });
-                viewLibrary(showId);
-            } catch (err) {
-                app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
-                btn.disabled = false;
-                label.textContent = 'Delete';
+                .join('')}</div>
+            ${items.length === 0 ? '<div class="notice">No episodes match this tab.</div>' : ''}`;
+        wireBackendPicker();
+        wireLevelPicker();
+        wireLibraryTabs(render);
+
+        app.querySelectorAll('.elevated-row').forEach((el) => {
+            if (el.dataset.status === 'summarized') {
+                el.style.cursor = 'pointer';
+                el.addEventListener('click', () => (location.hash = `#/episode/${el.dataset.id}`));
             }
-        })
-    );
+        });
+
+        app.querySelectorAll('[data-action="summarize"]').forEach((btn) =>
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                btn.disabled = true;
+                btn.textContent = 'Starting…';
+                try {
+                    const res = await api('/jobs', {
+                        method: 'POST',
+                        body: JSON.stringify({ episodeId: Number(btn.dataset.id), backend: currentBackend(), level: currentLevel() })
+                    });
+                    location.hash = `#/job/${res.job.id}`;
+                } catch (err) {
+                    app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+                    btn.disabled = false;
+                    btn.textContent = 'Summarize';
+                }
+            })
+        );
+
+        app.querySelectorAll('[data-action="set-status"]').forEach((select) =>
+            select.addEventListener('change', async (e) => {
+                e.stopPropagation();
+                const it = items.find((x) => x.episode_id === Number(select.dataset.id));
+                if (!it) return;
+                const previous = it.reading_status;
+                const next = select.value;
+                it.reading_status = next; // optimistic
+                render(); // re-render so a status change that no longer matches the active tab drops the row
+                try {
+                    await api(`/episodes/${it.episode_id}/status`, { method: 'PUT', body: JSON.stringify({ status: next }) });
+                } catch (err) {
+                    it.reading_status = previous;
+                    render();
+                    app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+                }
+            })
+        );
+
+        app.querySelectorAll('[data-action="delete"]').forEach((btn) =>
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (
+                    !confirm(
+                        'Remove this episode from your library? Your summary will be deleted. ' +
+                            "If you're the only one who's summarized it, the cached transcript is cleared too."
+                    )
+                )
+                    return;
+                btn.disabled = true;
+                const label = btn.querySelector('.btn-label');
+                label.textContent = 'Deleting…';
+                try {
+                    await api(`/episodes/${btn.dataset.id}/transcript`, { method: 'DELETE' });
+                    viewLibrary(showId);
+                } catch (err) {
+                    app.insertAdjacentHTML('afterbegin', `<div class="notice error">${esc(err.message)}</div>`);
+                    btn.disabled = false;
+                    label.textContent = 'Delete';
+                }
+            })
+        );
+    };
+
+    render();
 }
 
 /* ---------------------------------------------------------------- router */
